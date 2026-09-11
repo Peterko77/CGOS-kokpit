@@ -1,0 +1,40 @@
+name: keepalive
+
+# Denný dotaz do databázy, aby sa free projekt Supabase nepozastavil
+# po týždni nečinnosti. Chráni tým CGOS kokpit aj Drescher Cost Cockpit.
+# Beží o 06:12 UTC; presný čas nie je dôležitý, len pravidelnosť.
+on:
+  schedule:
+    - cron: "12 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Načítať URL a anon kľúč z config.js
+        id: cfg
+        run: |
+          URL=$(grep -oP 'url:\s*"\K[^"]+' config.js)
+          KEY=$(grep -oP 'anonKey:\s*"\K[^"]+' config.js)
+          if [ -z "$URL" ] || [ -z "$KEY" ] || [[ "$URL" == __* ]]; then
+            echo "config.js ešte nie je vyplnený — preskakujem."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "url=$URL" >> $GITHUB_OUTPUT
+            echo "key=$KEY" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Ping
+        if: steps.cfg.outputs.skip != 'true'
+        run: |
+          code=$(curl -s -o /tmp/out -w "%{http_code}" \
+            "${{ steps.cfg.outputs.url }}/rest/v1/heartbeat?select=id&limit=1" \
+            -H "apikey: ${{ steps.cfg.outputs.key }}")
+          echo "HTTP $code"; cat /tmp/out; echo
+          if [ "$code" != "200" ]; then
+            echo "::error::Databáza neodpovedala (HTTP $code). Projekt môže byť pozastavený."
+            exit 1
+          fi
