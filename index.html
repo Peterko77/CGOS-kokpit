@@ -538,7 +538,8 @@ const DEFAULTS = () => ({
   allocWeights: {},          // key -> weight (manual)
   calib: {'CGOS': defCal('CGOS'), 'AZ Prima': defCal('AZ Prima')},
   inclUplift: true,          // zahrnúť fee AZPR (zľava 2025+2026, CGOS-navýšenie 2026)
-  scope: 'cgos',             // cgos | all | az — rozsah zobrazenia
+  scope: 'all',              // cgos | all | az — rozsah zobrazenia
+  ovYear: '2026',            // 2026 | 2025 | both — ktorý rok ukazujú dlaždice v Prehľade
   // forecast 2026
   fcMethod: 'season',        // season | avg3 | plan | manual
   fcManual: {},              // key -> [12] objemy (len mesiace > YTD)
@@ -1095,12 +1096,12 @@ function legend(items){
    ======================================================================= */
 const TABS=[
   ['ov','Prehľad', renderOverview],
+  ['p27','Plán 2027', renderPlan],
   ['cl','Klienti', renderClients],
   ['mo','Mesačný detail', renderMonthly],
   ['co','Náklady a fixné', renderCosts],
   ['pr','Cenník / položky', renderItems],
   ['kv','Kalkulačný vzorec', renderKV],
-  ['p27','Plán 2027', renderPlan],
   ['io','Import / Export', renderIO],
 ];
 let active='ov';
@@ -1173,23 +1174,44 @@ function renderOverview(p,D){
   const fix26=all.reduce((s,r)=>s+r.fix26,0);
   const net26=a26.marAdj-fix26;
 
+  // 2025: celý rok, plán a predchádzajúci rok
+  const gInView=[...new Set(all.map(r=>r.group))];
+  const p25=aggPlain(all,r=>r.p25), pv25=aggPlain(all,r=>r.pv25);
+  const fix25=gInView.reduce((s,g)=>s+fixFY(g,'2025',S.scopeAdj),0);
+  const net25=a25.marAdj-fix25;
+  const YR={'2026':'2026','2025':'2025','both':'oba roky'}[S.ovYear];
+
   p.innerHTML=`
   <div class="card">
     <div class="hd"><h2>Výkon: ${esc({cgos:'CGOS',az:'AZ Prima',all:'CGOS + AZ Prima'}[S.scope])}</h2>
-      <span class="note">Porovnanie rovnakých mesiacov: <b>1–${YTD}/2025</b> vs <b>1–${YTD}/2026</b>. Celý rok 2026 = skutočnosť 1–${YTD} + forecast ${YTD+1}–12.</span></div>
+      <span class="note">${S.ovYear==='2025'
+        ? 'Celý rok <b>2025</b>, porovnanie s rokom 2024.'
+        : S.ovYear==='both'
+        ? `Celý rok <b>2025</b> vs <b>2026</b> (skutočnosť 1–${YTD} + forecast ${YTD+1}–12).`
+        : `Rovnaké mesiace <b>1–${YTD}/2025</b> vs <b>1–${YTD}/2026</b>. Celý rok 2026 = skutočnosť 1–${YTD} + forecast ${YTD+1}–12.`}</span></div>
+    <div class="row" style="margin-bottom:12px">
+      ${ctl({t:'seg',label:'Obdobie',val:S.ovYear,
+        opts:[['2026','2026 (YTD 1–'+YTD+')'],['2025','2025 (celý rok)'],['both','Oba roky']],
+        on:set(v=>S.ovYear=v)})}
+    </div>
     <div class="grid tiles" id="tiles"></div>
-    ${calloutHeadline(y25,y26,all)}
-    <div class="callout"><b>Základ výpočtu.</b>
-      Variabilné náklady sú z cenníkov BP, kalibrované oddelene pre materiál a služby, samostatne pre
-      každú skupinu (${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g).mat)} / ${nf2.format(kOf(g).svc)}`).join(' · ')}).
-      ${S.inclUplift?`Zahrnutý je <b>fee AZPR</b>: paušálna zľava −8 000 €/mes. z fakturácie projektov AZPR
+    ${headlineShort(y25,y26,a26,net26,all)}
+    <details class="acc"><summary>Prečo objemy klesajú a prečo marže napriek tomu držia</summary>
+      <div>${calloutHeadline(y25,y26,all)}</div></details>
+    <details class="acc"><summary>Ako sú čísla počítané (metodika, zdroje, úpravy)</summary>
+      <div class="note" style="line-height:1.6;padding-top:4px">
+      <b>Variabilné náklady</b> sú z cenníkov BP, kalibrované oddelene pre materiál a služby, samostatne pre
+      každú skupinu (${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g).mat)} / ${nf2.format(kOf(g).svc)}`).join(' · ')}).<br>
+      ${S.inclUplift?`<b>Fee AZPR</b> je zahrnutý: paušálna zľava −8 000 €/mes. z fakturácie projektov AZPR
         (oba roky, BP riadok 49) a jej neúčtovanie za 2026 vykázané ako <b>CGOS-navýšenie</b>
         +8 000 €/mes. (riadok 75). Za 2025 je teda tržba skupiny nižšia o 96 000 €, za 2026 sa obe
         strany vyrovnajú a rozdiel +96 000 € je reálne zvýšenie ceny.`
-        :'Fee AZPR (zľava −8 000 €/mes. a CGOS-navýšenie) <b>nie je</b> zahrnutý.'}
-      Fixné náklady: ${GROUPS.map(g=>`${esc(g)} ${eur(M.fixByG[g])}`).join(', ')} ročne,
+        :'<b>Fee AZPR</b> (zľava −8 000 €/mes. a CGOS-navýšenie) <b>nie je</b> zahrnutý.'}<br>
+      <b>Fixné náklady</b>: ${GROUPS.map(g=>`${esc(g)} ${eur(M.fixByG[g])}`).join(', ')} ročne,
       rozpustené ${esc(allocLabel())}. Zdroj: nákladové karty DMIS, mesačná báza × 12.
-      Zmeniť v záložke <b>Náklady a fixné</b>.</div>
+      Zmeniť v záložke <b>Náklady a fixné</b>.<br>
+      <b>Hrubá marža</b> = tržba − variabilné náklady. <b>Výsledok</b> = hrubá marža − fixné náklady.
+      </div></details>
     ${scopeWarn(M)}
   </div>
 
@@ -1220,17 +1242,52 @@ function renderOverview(p,D){
     <div class="tscroll" id="gt"></div>
   </div>`;
 
-  // tiles
+  // dlaždice / porovnávacia tabuľka podľa zvoleného obdobia
+  const tilesEl=document.getElementById('tiles');
   const T=[];
-  T.push(tile(`Tržba 1–${YTD}`, eur(y26.rev), `2025: ${eur(y25.rev)}`, dlt(y26.rev,y25.rev)));
-  T.push(tile(`Objem 1–${YTD}`, num(y26.vol), `2025: ${num(y25.vol)}`, dlt(y26.vol,y25.vol)));
-  T.push(tile('Cena / zásielku', e4(y26.uP), `2025: ${e4(y25.uP)}`, dlt(y26.uP,y25.uP)));
-  T.push(tile(`Hrubá marža 1–${YTD}`, eur(y26.marAdj), `${pc1(y26.mpc)} z tržby`, dlt(y26.mpc,y25.mpc)));
-  T.push(tile(`Plnenie plánu 1–${YTD}`, pc1(pl26.rev? y26.rev/pl26.rev*100:NaN), `plán ${eur(pl26.rev)}`, null));
-  T.push(tile('Tržba 2026 – odhad', eur(a26.rev), `2025: ${eur(a25.rev)}`, dlt(a26.rev,a25.rev)));
-  T.push(tile('Fixné náklady 2026', eur(fix26), `${e4(a26.vol?fix26/a26.vol:NaN)}/zás.`, null));
-  T.push(tile('Výsledok po fixných', eur(net26), `${pc1(a26.rev?net26/a26.rev*100:NaN)} z tržby`, null, net26<0?'crit':null));
-  document.getElementById('tiles').innerHTML=T.join('');
+  if(S.ovYear==='2025'){
+    const uP24 = pv25.vol ? pv25.rev/pv25.vol : 0;
+    T.push(tile('Tržba 2025', eur(a25.rev), pv25.rev?`2024: ${eur(pv25.rev)}`:'', pv25.rev?dlt(a25.rev,pv25.rev):null));
+    T.push(tile('Objem 2025', num(a25.vol), pv25.vol?`2024: ${num(pv25.vol)}`:'', pv25.vol?dlt(a25.vol,pv25.vol):null));
+    T.push(tile('Cena / zásielku', e4(a25.uP), uP24?`2024: ${e4(uP24)}`:'', uP24?dlt(a25.uP,uP24):null));
+    T.push(tile('Hrubá marža 2025', eur(a25.marAdj), `${pc1(a25.mpc)} z tržby`, null));
+    T.push(tile('Plnenie plánu 2025', pc1(p25.rev? a25.rev/p25.rev*100:NaN), `plán ${eur(p25.rev)}`, null));
+    T.push(tile('Variabilné náklady 2025', eur(a25.vcAdj), `${pc1(a25.rev?a25.vcAdj/a25.rev*100:NaN)} z tržby`, null));
+    T.push(tile('Fixné náklady 2025', eur(fix25), `${e4(a25.vol?fix25/a25.vol:NaN)}/zás.`, null));
+    T.push(tile('Výsledok po fixných', eur(net25), `${pc1(a25.rev?net25/a25.rev*100:NaN)} z tržby`, null, net25<0?'crit':null));
+    tilesEl.className='grid tiles'; tilesEl.innerHTML=T.join('');
+  } else if(S.ovYear==='both'){
+    const pp=(x,y)=>{ const d=x-y; return `<span class="delta ${d>0?'up':(d<0?'dn':'')}">${(d>0?'+':'')+nf1.format(d)} p.b.</span>`; };
+    const R2=[
+      ['Objem (zásielok)', num(a25.vol), num(a26.vol), deltaHTML(a26.vol,a25.vol)],
+      ['Tržba', eur(a25.rev), eur(a26.rev), deltaHTML(a26.rev,a25.rev)],
+      ['Cena / zásielku', e4(a25.uP), e4(a26.uP), deltaHTML(a26.uP,a25.uP)],
+      ['Variabilné náklady', eur(a25.vcAdj), eur(a26.vcAdj), deltaHTML(a26.vcAdj,a25.vcAdj,true)],
+      ['Hrubá marža', eur(a25.marAdj), eur(a26.marAdj), deltaHTML(a26.marAdj,a25.marAdj)],
+      ['Hrubá maržovosť', pc1(a25.mpc), pc1(a26.mpc), pp(a26.mpc,a25.mpc)],
+      ['Fixné náklady', eur(fix25), eur(fix26), deltaHTML(fix26,fix25,true)],
+      ['Výsledok po fixných', eur(net25), eur(net26), deltaHTML(net26,net25)],
+      ['Výsledok % z tržby', pc1(a25.rev?net25/a25.rev*100:NaN), pc1(a26.rev?net26/a26.rev*100:NaN),
+        pp(a26.rev?net26/a26.rev*100:0, a25.rev?net25/a25.rev*100:0)],
+    ];
+    tilesEl.className='tscroll';
+    tilesEl.innerHTML=`<table><thead><tr>
+        <th class="l stickyc">Ukazovateľ</th><th>2025 (celý rok)</th>
+        <th>2026 (skutočnosť 1–${YTD} + forecast)</th><th>Zmena</th></tr></thead><tbody>
+      ${R2.map((r,i)=>`<tr class="${i>=7?'tot':''}"><td class="l stickyc">${esc(r[0])}</td>
+        <td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('')}
+      </tbody></table>`;
+  } else {
+    T.push(tile(`Tržba 1–${YTD}`, eur(y26.rev), `2025: ${eur(y25.rev)}`, dlt(y26.rev,y25.rev)));
+    T.push(tile(`Objem 1–${YTD}`, num(y26.vol), `2025: ${num(y25.vol)}`, dlt(y26.vol,y25.vol)));
+    T.push(tile('Cena / zásielku', e4(y26.uP), `2025: ${e4(y25.uP)}`, dlt(y26.uP,y25.uP)));
+    T.push(tile(`Hrubá marža 1–${YTD}`, eur(y26.marAdj), `${pc1(y26.mpc)} z tržby`, dlt(y26.mpc,y25.mpc)));
+    T.push(tile(`Plnenie plánu 1–${YTD}`, pc1(pl26.rev? y26.rev/pl26.rev*100:NaN), `plán ${eur(pl26.rev)}`, null));
+    T.push(tile('Tržba 2026 – odhad', eur(a26.rev), `2025: ${eur(a25.rev)}`, dlt(a26.rev,a25.rev)));
+    T.push(tile('Fixné náklady 2026', eur(fix26), `${e4(a26.vol?fix26/a26.vol:NaN)}/zás.`, null));
+    T.push(tile('Výsledok po fixných', eur(net26), `${pc1(a26.rev?net26/a26.rev*100:NaN)} z tržby`, null, net26<0?'crit':null));
+    tilesEl.className='grid tiles'; tilesEl.innerHTML=T.join('');
+  }
 
   // charts
   const rvA=(f)=>{ const rv=monSum(all,r=>f(r).rev);
@@ -1320,6 +1377,20 @@ function tile(lab,val,sub,d,tone){
   return `<div class="tile"><div class="lab">${esc(lab)}</div>
     <div class="val" ${tone==='crit'?'style="color:var(--crit)"':''}>${val}</div>
     <div class="sub">${sub||''} ${d?`<span class="delta ${d.c}">${d.t}</span>`:''}</div></div>`;
+}
+/** Jednovetové zhrnutie pre vedenie — to podstatné bez odborného balastu. */
+function headlineShort(y25,y26,a26,net26,rows){
+  const dV = y25.vol? (y26.vol/y25.vol-1)*100 : 0;
+  const dR = y25.rev? (y26.rev/y25.rev-1)*100 : 0;
+  const dP = y25.uP ? (y26.uP/y25.uP-1)*100 : 0;
+  const netPc = a26.rev? net26/a26.rev*100 : 0;
+  const tone = netPc<10 ? 'c' : (dV<-12 ? 'w' : '');
+  return `<div class="callout ${tone}" style="font-size:14px">
+    <b>Objem klesá, výsledok zatiaľ držíme cenou a úsporou fixných nákladov.</b><br>
+    Za 1–${YTD}/2026 klesol objem o <b>${nf1.format(dV)} %</b> a tržba o <b>${nf1.format(dR)} %</b>,
+    priemerná cena za zásielku pritom stúpla o <b>${nf1.format(dP)} %</b>.
+    Hrubá maržovosť je <b>${pc1(y26.mpc)}</b>, výsledok po fixných nákladoch
+    <b>${eur(net26)}</b>, teda <b>${pc1(netPc)}</b> z tržby.</div>`;
 }
 function calloutHeadline(y25,y26,rows){
   const noEnd = rows.filter(r=>r.key!=='cssz'&&r.key!=='lenalidomid');
