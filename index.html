@@ -105,6 +105,16 @@ nav.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(-
 .panel .ph{color:var(--muted);font-size:11.5px;margin:0 0 12px}
 .panel .field{margin-bottom:14px}
 .panel .field:last-child{margin-bottom:0}
+/* nákladová tabuľka: oddelenie blokov skupín a výrazné nadpisy sekcií */
+table.blocks th.bl,table.blocks td.bl{border-left:2px solid var(--axis)}
+table.blocks thead th.gh{text-align:center;font-size:12.5px;font-weight:700;color:var(--ink);
+  background:color-mix(in srgb,var(--s1) 9%,var(--surface-2));letter-spacing:.04em}
+table.blocks tr.sech td{background:color-mix(in srgb,var(--s1) 7%,var(--surface-2));
+  text-align:center;font-weight:700;font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--ink);border-top:1px solid var(--axis);border-bottom:1px solid var(--axis);padding:7px 9px}
+table.blocks tr.sech td .h{font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:11px}
+table.blocks tbody tr.key td{font-weight:650}
+table.blocks tbody tr.sub td:first-child{padding-left:26px;color:var(--ink-2)}
 .cbar{display:flex;height:28px;border-radius:6px;overflow:hidden;border:1px solid var(--border)}
 .cbar i{display:block;min-width:1px}
 .kgrid{display:flex;gap:8px;align-items:center;margin-bottom:4px}
@@ -120,12 +130,15 @@ nav.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(-
 .tile .val{font-size:23px;font-weight:640;letter-spacing:-.02em;margin-top:5px;line-height:1.15}
 .tile .sub{font-size:var(--subsize,13.5px);font-weight:500;color:var(--ink-2);margin-top:6px;line-height:1.35;
   display:flex;gap:7px;align-items:baseline;flex-wrap:wrap}
-.tile .sub .delta{white-space:nowrap}
+/* percentuálna zmena je hlavné čítané číslo po hodnote – výrazne väčšia než popis */
+.tile .sub .delta{white-space:nowrap;font-size:calc(var(--subsize,13.5px) + 4px);
+  font-weight:700;letter-spacing:-.01em;line-height:1.1}
 /* Prehľad má vždy 8 dlaždíc – na širokej obrazovke 4+4, nie 7+1 */
 @media(min-width:1150px){ #tiles.tiles,#pt.tiles{grid-template-columns:repeat(4,1fr)} }
 #pt.tiles .tile{padding:15px 16px}
 #pt.tiles .tile .val{font-size:26px}
 #pt.tiles .tile .sub{font-size:14px}
+#pt.tiles .tile .sub .delta{font-size:18px}
 .delta{font-size:12.5px;font-weight:600}
 .delta.pos{color:var(--up)} .delta.neg{color:var(--crit)} .delta.flat{color:var(--muted)}
 .two{grid-template-columns:1fr 1fr}
@@ -1007,7 +1020,11 @@ function chartBars(el, series, labels, opts={}){
 }
 /** horizontal diverging bars */
 function chartHBar(el, items, opts={}){
-  const rowH=opts.rowH||19, W=980, L=opts.L||190, R=opts.R||70, T=8, FS=opts.fs||null;
+  // Keď je zadaná veľkosť písma, viewBox sa prispôsobí skutočnej šírke bloku,
+  // aby 1 jednotka SVG = 1 px na obrazovke a písmo sedelo na zadanú hodnotu.
+  const cw = el.clientWidth||0;
+  const rowH=opts.rowH||19, W=opts.W || ((opts.fs && cw>300) ? Math.round(cw) : 980),
+        L=opts.L||190, R=opts.R||70, T=8, FS=opts.fs||null;
   const H=T*2+items.length*rowH;
   let mx=0; items.forEach(d=>mx=Math.max(mx,Math.abs(d.v)));
   const mxN=niceMax(mx)||1, iw=W-L-R, x0=L+iw/2, sc=(iw/2)/mxN;
@@ -1254,14 +1271,16 @@ function renderOverview(p,D){
         ? 'Celý rok <b>2025</b>, porovnanie s rokom 2024.'
         : S.ovYear==='both'
         ? `Celý rok <b>2025</b> vs <b>2026</b> (skutočnosť 1–${YTD} + forecast ${YTD+1}–12).`
-        : `Rovnaké mesiace <b>1–${YTD}/2025</b> vs <b>1–${YTD}/2026</b>. Celý rok 2026 = skutočnosť 1–${YTD} + forecast ${YTD+1}–12.`}</span></div>
+        : `Rovnaké mesiace <b>1–${YTD}/2025</b> vs <b>1–${YTD}/2026</b>. Celý rok 2026 = skutočnosť 1–${YTD} + forecast ${YTD+1}–12, odhad tržby <b>${eur(a26.rev)}</b>.`}</span></div>
     <div class="row" style="margin-bottom:12px">
       ${ctl({t:'seg',label:'Obdobie',val:S.ovYear,
         opts:[['2026','2026 (YTD 1–'+YTD+')'],['2025','2025 (celý rok)'],['both','Oba roky']],
         on:set(v=>S.ovYear=v)})}
+      <div style="margin-left:auto">
       ${ctl({t:'seg',label:'Veľkosť porovnávacieho riadku',val:String(S.subSize),
         opts:[['11.5','malá'],['13.5','väčšia'],['15','najväčšia']],
         on:set(v=>S.subSize=+v)})}
+      </div>
     </div>
     <div class="grid tiles" id="tiles"></div>
     <details class="acc"><summary>Zhrnutie: objem klesá, výsledok držíme cenou a úsporou fixných nákladov</summary>
@@ -1357,8 +1376,8 @@ function renderOverview(p,D){
     T.push(tile('Cena / zásielku', e4(y26.uP), `2025: ${e4(y25.uP)}`, dlt(y26.uP,y25.uP),null,`1–${YTD}/2026`));
     T.push(tile('Hrubá marža', eur(y26.marAdj), `${pc1(y26.mpc)} z tržby`, dlt(y26.mpc,y25.mpc),null,`1–${YTD}/2026`));
     T.push(tile('Plnenie plánu', pc1(pl26.rev? y26.rev/pl26.rev*100:NaN), `plán ${eur(pl26.rev)}`, null,null,`1–${YTD}/2026`));
-    T.push(tile('Tržba – odhad', eur(a26.rev), `2025: ${eur(a25.rev)}`, dlt(a26.rev,a25.rev),null,'2026'));
-    T.push(tile('Fixné náklady', eur(fix26), `${e4(a26.vol?fix26/a26.vol:NaN)}/zás.`, null,null,'2026'));
+    T.push(tile('Variabilné náklady', eur(a26.vcAdj), `${pc1(a26.rev?a26.vcAdj/a26.rev*100:NaN)} z tržby`, dlt(a26.vcAdj,a25.vcAdj,true),null,'2026'));
+    T.push(tile('Fixné náklady', eur(fix26), `${e4(a26.vol?fix26/a26.vol:NaN)}/zás.`, dlt(fix26,fix25,true),null,'2026'));
     T.push(tile('Výsledok po fixných', eur(net26), `${pc1(a26.rev?net26/a26.rev*100:NaN)} z tržby`, null, net26<0?'crit':null,'2026'));
     tilesEl.className='grid tiles'; tilesEl.innerHTML=T.join('');
   }
@@ -1404,7 +1423,7 @@ function renderOverview(p,D){
   chartLines(document.getElementById('chH'),sH,hyrs.map(y=>y===2026?'2026*':String(y)),
     {zero:true,h:280,fmt:eur,axfmt:v=>nf0.format(v/1000)+'k'});
 
-  chartHBar(document.getElementById('ch3'), ch3, {rowH:30, L:250, R:110, fs:14});
+  chartHBar(document.getElementById('ch3'), ch3, {rowH:22, L:230, R:100, fs:12});
 
   const ch4=R.filter(r=>!r.planAlloc26 && r.pytd26.rev>500)
     .map(r=>({name:r.label, v:r.ytd26.rev/r.pytd26.rev*100-100,
@@ -1419,7 +1438,7 @@ function renderOverview(p,D){
     name:g.name, v:g.act/g.pl*100-100,
     detail:`skutočnosť ${eur(g.act)} · plán ${eur(g.pl)}<br><i>agregátny riadok plánu v BP</i>`}));
   ch4.sort((a,b)=>b.v-a.v);
-  chartHBar(document.getElementById('ch4'), ch4, {fmt:v=>(v>0?'+':'')+nf0.format(v)+' %', rowH:30, L:290, R:100, fs:14});
+  chartHBar(document.getElementById('ch4'), ch4, {fmt:v=>(v>0?'+':'')+nf0.format(v)+' %', rowH:22, L:270, R:90, fs:12});
 
   // group table
   const cols=['Segment','Tržba 2026','Δ vs 2025','Objem','€/zás.','Var. náklady','Hrubá marža','Maržovosť','Fixné alok.','Výsledok','Výsl. %'];
@@ -1838,7 +1857,8 @@ function renderCosts(p,D){
   const TOT = COLS[COLS.length-1][1];
 
   const cRow2=(lab,f25,f26,fmt,cls)=>`<tr class="${cls||''}"><td class="l stickyc">${lab}</td>`+
-    COLS.map(([,c])=>`<td>${fmt(f25(c))}</td><td>${fmt(f26(c))}</td><td>${deltaHTML(f26(c),f25(c),true)}</td>`).join('')+`</tr>`;
+    COLS.map(([,c])=>`<td class="bl">${fmt(f25(c))}</td><td>${fmt(f26(c))}</td><td>${deltaHTML(f26(c),f25(c),true)}</td>`).join('')+`</tr>`;
+  const cSec=(t,h)=>`<tr class="sech"><td colspan="${1+COLS.length*3}">${t}${h?` <span class="h">— ${h}</span>`:''}</td></tr>`;
 
   const head = `
   <div class="card">
@@ -1864,20 +1884,21 @@ function renderCosts(p,D){
     </div>
 
     <div class="tscroll" style="margin-top:18px">
-      <table><thead>
+      <table class="blocks"><thead>
         <tr><th class="l stickyc" rowspan="2" style="vertical-align:bottom">Nákladová položka</th>
-          ${COLS.map(([n])=>`<th colspan="3" style="position:static">${esc(n)}</th>`).join('')}</tr>
-        <tr>${COLS.map(()=>`<th style="position:static">2025</th><th style="position:static">2026</th><th style="position:static">Δ</th>`).join('')}</tr>
+          ${COLS.map(([n])=>`<th class="gh bl" colspan="3" style="position:static">${esc(n)}</th>`).join('')}</tr>
+        <tr>${COLS.map(()=>`<th class="bl" style="position:static">2025</th><th style="position:static">2026</th><th style="position:static">Δ</th>`).join('')}</tr>
         </thead><tbody>
-        <tr class="grp"><td class="l stickyc" colspan="${1+COLS.length*3}">Variabilné náklady — rastú a klesajú s objemom</td></tr>
+        ${cSec('Variabilné náklady','rastú a klesajú s objemom')}
         ${cRow2('Materiál (obálky, papier)',c=>c.a25.matAdj,c=>c.a26.matAdj,eur,'sub')}
         ${cRow2('Služby (tlač, obálkovanie, spracovanie)',c=>c.a25.svcAdj,c=>c.a26.svcAdj,eur,'sub')}
-        ${cRow2('<b>Variabilné náklady spolu</b>',c=>c.a25.vcAdj,c=>c.a26.vcAdj,eur)}
+        ${cRow2('Variabilné náklady spolu',c=>c.a25.vcAdj,c=>c.a26.vcAdj,eur,'key')}
         ${cRow2('z toho na 1 zásielku',c=>c.a25.vol?c.a25.vcAdj/c.a25.vol:NaN,c=>c.a26.vol?c.a26.vcAdj/c.a26.vol:NaN,e4,'sub')}
-        <tr class="grp"><td class="l stickyc" colspan="${1+COLS.length*3}">Fixné náklady — nesúvisia s objemom</td></tr>
-        ${cRow2('<b>Fixné náklady ročne</b>',c=>c.f25,c=>c.f26,eur)}
+        ${cSec('Fixné náklady','nesúvisia s objemom')}
+        ${cRow2('Fixné náklady ročne',c=>c.f25,c=>c.f26,eur,'key')}
         ${cRow2('na mesiac',c=>c.f25/12,c=>c.f26/12,eur,'sub')}
         ${cRow2('na 1 zásielku',c=>c.a25.vol?c.f25/c.a25.vol:NaN,c=>c.a26.vol?c.f26/c.a26.vol:NaN,e4,'sub')}
+        ${cSec('Spolu')}
         ${cRow2('NÁKLADY SPOLU',c=>c.t25,c=>c.t26,eur,'tot')}
         ${cRow2('Nákladová cena na 1 zásielku',c=>c.a25.vol?c.t25/c.a25.vol:NaN,c=>c.a26.vol?c.t26/c.a26.vol:NaN,e4,'tot')}
         </tbody></table>
@@ -3220,6 +3241,12 @@ document.addEventListener('change',e=>{
   if(t.dataset && t.dataset.ret){ S.retainerMode='manual'; S.retainer[t.dataset.ret]=+t.value; render(); }
 });
 if(S.theme) document.documentElement.setAttribute('data-theme',S.theme);
+// grafy s pevnou veľkosťou písma sa kreslia podľa šírky bloku – po zmene šírky okna prekresli
+let __rsW=innerWidth, __rsT=null;
+addEventListener('resize',()=>{
+  if(Math.abs(innerWidth-__rsW)<40) return;
+  __rsW=innerWidth; clearTimeout(__rsT); __rsT=setTimeout(()=>render(),200);
+});
 
 /* ---- web: hlavička ---- */
 (function(){
