@@ -201,6 +201,7 @@ details.acc>div{padding:0 13px 13px}
     <button class="btn" id="btnPull" title="Načítať spoločný stav z databázy">↻ Spoločný stav</button>
     <button class="btn" id="btnPublish" title="Uložiť stav pre všetkých">⇪ Publikovať</button>
     <span id="userChip"></span>
+    <button class="btn" id="btnPwd" title="Zmeniť heslo">🔑</button>
     <button class="btn" id="btnLogout" title="Odhlásiť sa">⎋</button>
   </div>
   <nav class="tabs" id="tabs" role="tablist"></nav>
@@ -251,6 +252,15 @@ details.acc>div{padding:0 13px 13px}
       <input type="password" id="gPass" autocomplete="current-password">
       <button class="btn pri" id="gLogin">Prihlásiť sa</button>
       <button class="lnk" id="gReset" type="button">Zabudnuté heslo</button>
+    </div>
+
+    <div id="gPwd" class="gate-hidden">
+      <p style="font-size:13px;margin:0 0 4px">Nastav si nové heslo.</p>
+      <label for="gPwd1">Nové heslo</label>
+      <input type="password" id="gPwd1" autocomplete="new-password" placeholder="aspoň 8 znakov">
+      <label for="gPwd2">Ešte raz</label>
+      <input type="password" id="gPwd2" autocomplete="new-password">
+      <button class="btn pri" id="gPwdSave">Uložiť heslo</button>
     </div>
 
     <div id="gSeed" class="gate-hidden">
@@ -348,13 +358,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       const txt = await file.text();
       const obj = JSON.parse(txt);
       if(!obj.meta || !obj.clients) throw new Error('Súbor nevyzerá ako cgos_dataset.json');
-      const { error } = await sb.from('dataset').insert({
-        data: obj,
-        ytd_months: obj.meta.ytdMonths2026 || 0,
-        source_file: file.name,
-        note: 'úvodné naplnenie',
-        is_current: true,
-        updated_by: acc.email
+      const { error } = await sb.rpc('publish_dataset', {
+        p_data: obj,
+        p_ytd:  obj.meta.ytdMonths2026 || 0,
+        p_src:  file.name,
+        p_note: 'úvodné naplnenie'
       });
       if(error) throw error;
       msg('Dataset nahraný, spúšťam kokpit…','ok');
@@ -403,10 +411,50 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
               : 'Odkaz na zmenu hesla je na ceste na '+esc(email)+'.', error?'err':'ok');
   };
 
+  /* ---------- obnova hesla z e-mailového odkazu ---------- */
+  const hashP = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+  const qsP   = new URLSearchParams(location.search || '');
+  let RECOVERY = hashP.get('type') === 'recovery' || qsP.get('type') === 'recovery';
+
+  const errDesc = hashP.get('error_description') || qsP.get('error_description');
+  if(errDesc){
+    msg('Odkaz z e-mailu neplatí: '+esc(decodeURIComponent(errDesc.replace(/\+/g,' ')))+
+        '<br>Vyžiadaj si nový cez <i>Zabudnuté heslo</i>.','err');
+  }
+
+  function showPwdForm(){
+    RECOVERY = true;
+    $('gForm').classList.add('gate-hidden');
+    $('gSeed').classList.add('gate-hidden');
+    $('gPwd').classList.remove('gate-hidden');
+    if(!errDesc) msg('Odkaz je overený. Zadaj nové heslo.','ok');
+  }
+
+  $('gPwdSave').onclick = async () => {
+    const a = $('gPwd1').value, b = $('gPwd2').value;
+    if(a.length < 8){ msg('Heslo musí mať aspoň 8 znakov.','err'); return; }
+    if(a !== b){ msg('Heslá sa nezhodujú.','err'); return; }
+    msg('Ukladám…');
+    const { error } = await sb.auth.updateUser({ password: a });
+    if(error){ msg('Nepodarilo sa uložiť: '+esc(error.message),'err'); return; }
+    msg('Heslo nastavené.','ok');
+    history.replaceState(null, '', location.pathname);
+    const { data } = await sb.auth.getSession();
+    if(data && data.session){ $('gPwd').classList.add('gate-hidden'); afterLogin(data.session); }
+    else { $('gPwd').classList.add('gate-hidden'); $('gForm').classList.remove('gate-hidden'); }
+  };
+  $('gPwd2').addEventListener('keydown', e => { if(e.key==='Enter') $('gPwdSave').click(); });
+
+  sb.auth.onAuthStateChange((ev) => { if(ev === 'PASSWORD_RECOVERY') showPwdForm(); });
+
   /* ---------- existujúca relácia ---------- */
-  sb.auth.getSession().then(({ data }) => {
-    if(data && data.session){ $('gForm').classList.add('gate-hidden'); afterLogin(data.session); }
-  });
+  if(RECOVERY){
+    showPwdForm();
+  }else{
+    sb.auth.getSession().then(({ data }) => {
+      if(data && data.session){ $('gForm').classList.add('gate-hidden'); afterLogin(data.session); }
+    });
+  }
 })();
 </script>
 
@@ -2810,6 +2858,14 @@ if(S.theme) document.documentElement.setAttribute('data-theme',S.theme);
   chip.innerHTML='<b>'+esc(WEB.user.name||WEB.user.email)+'</b>'+
     '<span class="rolechip'+(WEB.isEditor?'':' viewer')+'">'+(WEB.isEditor?'editor':'viewer')+'</span>';
   chip.title=WEB.user.email;
+  document.getElementById('btnPwd').onclick=async()=>{
+    const a=prompt('Nové heslo (aspoň 8 znakov):'); if(a===null) return;
+    if(a.length<8){ alert('Heslo musí mať aspoň 8 znakov.'); return; }
+    const b=prompt('Zopakuj nové heslo:'); if(b===null) return;
+    if(a!==b){ alert('Heslá sa nezhodujú.'); return; }
+    const {error}=await SB.auth.updateUser({password:a});
+    alert(error? 'Nepodarilo sa: '+error.message : 'Heslo zmenené.');
+  };
   document.getElementById('btnLogout').onclick=async()=>{
     try{ localStorage.removeItem(LSKEY); }catch(e){}
     await SB.auth.signOut(); location.reload();
