@@ -514,18 +514,28 @@ function cenBaskets(group,year,n){
 /** Kalibračné koeficienty z nákladovej karty (materiál z výrobného reportu, služby = zvyšok). */
 function calFactors(group,year){
   const C=(DATA.card[group]||{})[year];
-  if(!C || C.mat==null) return null;
+  if(!C) return null;
   const b=cenBaskets(group,year,C.n);
   const r=v=>Math.round(v*1000)/1000;
+  const tot = b.tot>0? r(C.var/b.tot):1;
+  // bez materiálového reportu sa materiál od služieb oddeliť nedá — použije sa
+  // jeden spoločný koeficient z celkových variabilných nákladov karty
+  if(C.mat==null) return {n:C.n, mat:tot, svc:tot, tot, cen:b, noMat:true};
   return {n:C.n, mat: b.mat>0? r(C.mat/b.mat):1, svc: b.svc>0? r(C.svc/b.svc):1,
-          tot: b.tot>0? r(C.var/b.tot):1, cen:b};
+          tot, cen:b};
 }
 /** Pomer tržby modelu (cenník BP) k tržbe na karte za mesiace karty. */
+/** Do porovnania s kartou patrí aj úprava fee tam, kde išlo o reálnu fakturáciu:
+ *  AZ Prima 2025 — zľava 8 000 €/mes. sa skutočne neúčtovala, karta je po nej.
+ *  AZ Prima 2026 a CGOS 2026 — presun v BP, karty ho neobsahujú, preto sa neráta. */
+const SCOPE_WITH_ADJ = {'AZ Prima':{'2025':true}};
 function scopeF(g,y){
   const C=(DATA.card[g]||{})[y]; if(!C||!C.rev) return 1;
+  const withAdj = !!((SCOPE_WITH_ADJ[g]||{})[y]);
   let mrev=0;
   for(const c of DATA.clients){ if(c.group!==g) continue;
-    const Y=c.y[y]; for(let m=0;m<C.n;m++) mrev+=Y.rev[m]||0; }
+    const Y=c.y[y];
+    for(let m=0;m<C.n;m++) mrev += (Y.rev[m]||0) + (withAdj ? (Y.upl?Y.upl[m]||0:0) : 0); }
   return Math.round(mrev/C.rev*1000)/1000;
 }
 const SCOPEF={}; GROUPS0.forEach(g=>{ SCOPEF[g]={}; ['2025','2026'].forEach(y=>SCOPEF[g][y]=scopeF(g,y)); });
@@ -538,10 +548,14 @@ GROUPS0.forEach(g=>{ CAL[g]={}; CALA[g]={};
   });
 });
 /** Predvolené koeficienty: najnovší rok, ktorý má nákladovú kartu s materiálom. */
-function defCal(g){
-  const f=CALA[g]['2026']||CALA[g]['2025'];
+function defCal(g,y){
+  const f=CALA[g][y]||CALA[g]['2026']||CALA[g]['2025'];
   return f? {mat:f.mat, svc:f.svc} : {mat:1, svc:1};
 }
+/** Kalibrácia je vlastná pre každý rok — 2025 a 2026 majú výrazne iný pomer
+ *  cenníka k skutočným nákladom (u CGOS služby 1,27 vs 1,00). */
+const CAL_YEARS = ['2025','2026'];
+function defCalAll(g){ const o={}; CAL_YEARS.forEach(y=>o[y]=defCal(g,y)); return o; }
 /** Fixné náklady skupiny za celý rok, z mesačnej bázy karty; voliteľne korigované na rozsah. */
 function fixFY(g,y,adj){
   const C=(DATA.card[g]||{})[y]; if(!C) return 0;
@@ -555,7 +569,7 @@ const DEFAULTS = () => ({
   scopeAdj: true,            // korigovať náklady z kariet na rozsah hárkov BP
   allocMethod: 'vol',        // vol | rev | vc | manual
   allocWeights: {},          // key -> weight (manual)
-  calib: {'CGOS': defCal('CGOS'), 'AZ Prima': defCal('AZ Prima')},
+  calib: {'CGOS': defCalAll('CGOS'), 'AZ Prima': defCalAll('AZ Prima')},
   inclUplift: true,          // zahrnúť fee AZPR (zľava 2025+2026, CGOS-navýšenie 2026)
   scope: 'all',              // cgos | all | az — rozsah zobrazenia
   ovYear: '2026',            // 2026 | 2025 | both — ktorý rok ukazujú dlaždice v Prehľade
@@ -637,8 +651,15 @@ const pc1 = v => (!isFinite(v)||v===null) ? '–' : nf1.format(v)+' %';
 const sum = (a,n) => { let s=0, k=(n===undefined?a.length:n); for(let i=0;i<k;i++) s+=(a[i]||0); return s; };
 const sumFrom = (a,i0) => { let s=0; for(let i=i0;i<a.length;i++) s+=(a[i]||0); return s; };
 /** kalibračný koeficient pre kategóriu položky cenníka podľa skupiny */
-function kOf(g){ const c=(S.calib||{})[g]||{}; return {mat:c.mat||1, svc:c.svc||1}; }
-const catK = (cat,g) => (cat==='ob'||cat==='pa') ? kOf(g).mat : kOf(g).svc;
+/** Koeficienty pre skupinu a rok. Rok 2027 používa kalibráciu 2026.
+ *  Staršie uložené stavy majú {mat,svc} priamo na skupine — tie sa použijú pre oba roky. */
+function kOf(g,y){
+  const c=(S.calib||{})[g]||{};
+  const yy = (y==='2025') ? '2025' : '2026';
+  const k = (c[yy] && typeof c[yy]==='object') ? c[yy] : (c.mat!=null? c : null);
+  return k? {mat:k.mat||1, svc:k.svc||1} : {mat:1, svc:1};
+}
+const catK = (cat,g,y) => (cat==='ob'||cat==='pa') ? kOf(g,y).mat : kOf(g,y).svc;
 const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function dlt(cur,base,invert){
   if(!isFinite(cur)||!isFinite(base)||base===0) return {t:'–',c:'flat',v:null};
@@ -731,15 +752,15 @@ function derive(){
     const cat25={ob:a25.ob,pa:a25.pa,ma:a25.ma,sv:a25.sv};
     const cat26={ob:a26.ob,pa:a26.pa,ma:a26.ma,sv:a26.sv};
     // 2025 celý rok
-    r.y25 = pack(a25.rev, a25.vc, a25.mar, a25.vol, 12, cat25, a25.upl, c.group);
+    r.y25 = pack(a25.rev, a25.vc, a25.mar, a25.vol, 12, cat25, a25.upl, c.group,'2025');
     r.p25 = {rev:sum(a25.plan_rev), mar:sum(a25.plan_mar), vol:sum(a25.plan_vol)};
     r.pv25= {rev:sum(a25.prev_rev), mar:sum(a25.prev_mar), vol:sum(a25.prev_vol)};
     // YTD porovnanie (rovnaké mesiace)
-    r.ytd25 = pack(a25.rev, a25.vc, a25.mar, a25.vol, YTD, cat25, a25.upl, c.group);
-    r.ytd26 = pack(a26.rev, a26.vc, a26.mar, a26.vol, YTD, cat26, a26.upl, c.group);
+    r.ytd25 = pack(a25.rev, a25.vc, a25.mar, a25.vol, YTD, cat25, a25.upl, c.group,'2025');
+    r.ytd26 = pack(a26.rev, a26.vc, a26.mar, a26.vol, YTD, cat26, a26.upl, c.group,'2026');
     r.pytd26= {rev:sum(a26.plan_rev,YTD), mar:sum(a26.plan_mar,YTD), vol:sum(a26.plan_vol,YTD)};
     // 2026 celý rok (skutočnosť + forecast)
-    r.y26 = pack(fc.rev, fc.vc, fc.mar, fc.vol, 12, fc.cat, fc.upl, c.group);
+    r.y26 = pack(fc.rev, fc.vc, fc.mar, fc.vol, 12, fc.cat, fc.upl, c.group,'2026');
     r.fc26= {rev:sumFrom(fc.rev,YTD), mar:sumFrom(fc.mar,YTD), vol:sumFrom(fc.vol,YTD)};
     r.p26 = {rev:sum(a26.plan_rev), mar:sum(a26.plan_mar), vol:sum(a26.plan_vol)};
     r.m26 = fc;   // mesačné rady
@@ -825,8 +846,8 @@ function derive(){
   return {rows, view, meta};
 }
 /** rev/vc/mar/vol = mesačné rady; cat = {ob,pa,ma,sv}; upl = rad úprav fee AZPR */
-function pack(rev,vc,mar,vol,n,cat,upl,group){
-  const kk=kOf(group), kM=kk.mat, kS=kk.svc;
+function pack(rev,vc,mar,vol,n,cat,upl,group,year){
+  const kk=kOf(group,year), kM=kk.mat, kS=kk.svc;
   const U = (S.inclUplift&&upl)? sum(upl,n) : 0;
   const R=sum(rev,n)+U, M0=sum(mar,n)+U, V=sum(vol,n), C=sum(vc,n);
   let cm=0, cs=0;
@@ -1232,7 +1253,8 @@ function renderOverview(p,D){
     <details class="acc"><summary>Ako sú čísla počítané (metodika, zdroje, úpravy)</summary>
       <div class="note" style="line-height:1.6;padding-top:4px">
       <b>Variabilné náklady</b> sú z cenníkov BP, kalibrované oddelene pre materiál a služby, samostatne pre
-      každú skupinu (${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g).mat)} / ${nf2.format(kOf(g).svc)}`).join(' · ')}).<br>
+      každú skupinu a rok (2026: ${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g,'2026').mat)} / ${nf2.format(kOf(g,'2026').svc)}`).join(' · ')}
+      · 2025: ${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g,'2025').mat)} / ${nf2.format(kOf(g,'2025').svc)}`).join(' · ')}).<br>
       ${S.inclUplift?`<b>Fee AZPR</b> je zahrnutý: paušálna zľava −8 000 €/mes. z fakturácie projektov AZPR
         (oba roky, BP riadok 49) a jej neúčtovanie za 2026 vykázané ako <b>CGOS-navýšenie</b>
         +8 000 €/mes. (riadok 75). Za 2025 je teda tržba skupiny nižšia o 96 000 €, za 2026 sa obe
@@ -1321,15 +1343,16 @@ function renderOverview(p,D){
   document.getElementById('lg1').innerHTML=legend(s1);
   chartBars(document.getElementById('ch1'), s1, MON, {axfmt:v=>nf0.format(v/1000)+'k'});
 
+  const yFn25=r=>r.m25;
   const mAdj=(f)=>{
     const o=Z12();
-    all.forEach(r=>{ const k=kOf(r.group), x=f(r);
+    all.forEach(r=>{ const k=kOf(r.group, f===yFn25?'2025':'2026'), x=f(r);
       for(let i=0;i<12;i++) o[i]+=((x.cat.ob[i]||0)+(x.cat.pa[i]||0))*k.mat+((x.cat.ma[i]||0)+(x.cat.sv[i]||0))*k.svc; });
     return o; };
   const rvAdj=(f)=>{ const rv=monSum(all,r=>f(r).rev);
     if(!S.inclUplift) return rv;
     const u=monSum(all,r=>f(r).upl||Z12()); return rv.map((v,i)=>v+u[i]); };
-  const m25=rvAdj(r=>r.m25), c25=mAdj(r=>r.m25);
+  const m25=rvAdj(r=>r.m25), c25=mAdj(yFn25);
   const m26=rvAdj(r=>r.m26), c26=mAdj(r=>r.m26);
   const s2=[{name:'2025',color:'var(--s1)',data:m25.map((v,i)=>v?((v-c25[i])/v*100):null)},
             {name:'2026',color:'var(--s2)',data:m26.map((v,i)=>v?((v-c26[i])/v*100):null)}];
@@ -1385,7 +1408,7 @@ function scopeWarn(M){
   const inView=(S.scope==='all')?GROUPS:[S.scope==='az'?'AZ Prima':'CGOS'];
   const bad=inView.filter(g=>{const x=M.scopeChk[g];return x&&Math.abs(x.dev)>5;});
   if(!bad.length) return '';
-  const adj=Math.abs((kOf(bad[0]).svc||1)-((CAL[bad[0]]['2026']||{}).svc||1))>0.005;
+  const adj=Math.abs((kOf(bad[0],'2026').svc||1)-((CAL[bad[0]]['2026']||{}).svc||1))>0.005;
   return `<div class="callout w"><b>Rozsah nákladovej karty nesedí s hárkom BP.</b> `+
     bad.map(g=>{const x=M.scopeChk[g];
       return `${esc(g)}: model ${eur(x.model)} vs karta ${eur(x.card)} za 1–${x.n}/2026 (${nf1.format(x.dev)} %)`;}).join('; ')+
@@ -1541,7 +1564,7 @@ function drawClientTable(host, R){
   body+=`<tr class="tot"><td class="l stickyc">SPOLU</td>${tc.map(c=>`<td>${c}</td>`).join('')}<td></td></tr>`;
 
   host.innerHTML=`<table><thead><tr>${cols.map((c,i)=>`<th class="${i===0?'l stickyc':''}">${esc(c)}</th>`).join('')}<th></th></tr></thead><tbody>${body}</tbody></table>
-    <div style="padding:8px 10px;font-size:11.5px;color:var(--muted)">* 2026 = skutočnosť 1–${YTD} + forecast ${YTD+1}–12 · marža = hrubá, kalibrácia ${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g).mat)}/${nf2.format(kOf(g).svc)}`).join(' · ')}${S.inclUplift?' · tržba vrátane fee AZPR':''}</div>`;
+    <div style="padding:8px 10px;font-size:11.5px;color:var(--muted)">* 2026 = skutočnosť 1–${YTD} + forecast ${YTD+1}–12 · marža = hrubá, kalibrácia 2026 ${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g,'2026').mat)}/${nf2.format(kOf(g,'2026').svc)}`).join(' · ')}${S.inclUplift?' · tržba vrátane fee AZPR':''}</div>`;
   host.querySelectorAll('[data-tg]').forEach(t=>t.onclick=()=>{const k=t.dataset.tg;S.collapsed[k]=!S.collapsed[k];render();});
   host.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
     if(confirm('Zmazať klienta z analýzy?')){S.deleted.push(b.dataset.del);render();}});
@@ -1608,8 +1631,9 @@ function renderMonthly(p,D){
   </div>`;
   if(!r) return;
 
-  const kk=kOf(r.group), kM=kk.mat, kS=kk.svc;
-  const vcm=(o,m)=>((o.cat.ob[m]||0)+(o.cat.pa[m]||0))*kM+((o.cat.ma[m]||0)+(o.cat.sv[m]||0))*kS;
+  const vcmY=(o,m,y)=>{ const k=kOf(r.group,y);
+    return ((o.cat.ob[m]||0)+(o.cat.pa[m]||0))*k.mat+((o.cat.ma[m]||0)+(o.cat.sv[m]||0))*k.svc; };
+  const vcm=(o,m)=>vcmY(o,m,o===r.m25?'2025':'2026');
   const rvm=(o,m)=>(o.rev[m]||0)+(S.inclUplift?(o.upl?o.upl[m]||0:0):0);
   const y25=r.m25, y26=r.m26;
   const hd=['Mesiac','Objem 2025','Objem 2026','Δ %','Tržba 2025','Tržba 2026','Δ %','Var. nákl. 2026','Hrubá marža 2026','Hrubá maržovosť','€/zás. 2025','€/zás. 2026','Plán tržba 2026','Plnenie'];
@@ -1649,7 +1673,7 @@ function renderMonthly(p,D){
   chartStack(document.getElementById('chB'),sB,MON,{axfmt:v=>nf0.format(v/1000)+'k'});
 
   const allR=MON.map((_,m)=>R.reduce((a,x)=>a+(x.m26.rev[m]||0)+(S.inclUplift?(x.m26.upl[m]||0):0),0));
-  const allC=MON.map((_,m)=>R.reduce((a,x)=>{const k=kOf(x.group);
+  const allC=MON.map((_,m)=>R.reduce((a,x)=>{const k=kOf(x.group,'2026');
     return a+((x.m26.cat.ob[m]||0)+(x.m26.cat.pa[m]||0))*k.mat+((x.m26.cat.ma[m]||0)+(x.m26.cat.sv[m]||0))*k.svc;},0));
   const sC=[{name:'Variabilné náklady',color:'var(--s2)',data:allC},
             {name:'Hrubá marža',color:'var(--s3)',data:allR.map((v,i)=>v-allC[i])}];
@@ -1691,19 +1715,20 @@ function renderCosts(p,D){
     <div class="tscroll" id="calT"></div>
     ${calNote()}
     <div class="row" style="margin-top:14px">
-      ${gs.map(g=>`<div class="field" style="min-width:260px"><label>${esc(g)} — koeficienty</label>
-        <div style="display:flex;gap:8px;align-items:center">
-          <span class="note" style="width:56px">materiál</span>
-          <input type="number" data-cal="${esc(g)}|mat" value="${kOf(g).mat}" step="0.01" style="width:82px">
-          <span class="note" style="width:46px">služby</span>
-          <input type="number" data-cal="${esc(g)}|svc" value="${kOf(g).svc}" step="0.01" style="width:82px">
-        </div>
+      ${gs.map(g=>`<div class="field" style="min-width:300px"><label>${esc(g)} — koeficienty</label>
+        ${['2025','2026'].map(y=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+          <span class="note" style="width:34px;font-weight:600">${y}</span>
+          <span class="note" style="width:52px">materiál</span>
+          <input type="number" data-cal="${esc(g)}|${y}|mat" value="${kOf(g,y).mat}" step="0.01" style="width:78px">
+          <span class="note" style="width:42px">služby</span>
+          <input type="number" data-cal="${esc(g)}|${y}|svc" value="${kOf(g,y).svc}" step="0.01" style="width:78px">
+        </div>`).join('')}
         <span class="hint">${CAL[g]['2026']?`karta 2026: ${nf3.format(CAL[g]['2026'].mat)} / ${nf3.format(CAL[g]['2026'].svc)}`:''}${CALA[g]['2026']&&Math.abs(SCOPEF[g]['2026']-1)>0.02?` · s korekciou rozsahu (× ${nf3.format(SCOPEF[g]['2026'])}): <b>${nf3.format(CALA[g]['2026'].mat)} / ${nf3.format(CALA[g]['2026'].svc)}</b>`:''}${CAL[g]['2025']?` · 2025: ${nf3.format(CAL[g]['2025'].mat)} / ${nf3.format(CAL[g]['2025'].svc)}`:''}</span></div>`).join('')}
       <div class="field"><label>Predvoľby</label><div class="seg" id="calSeg">
         <button data-p="bp">Čistý cenník BP</button>
         <button data-p="c2025">Karty 2025</button>
         <button data-p="c2026">Karty 2026</button>
-        <button data-p="a2026">Karty 2026 + korekcia rozsahu</button>
+        <button data-p="a2026">Karty po rokoch + korekcia rozsahu</button>
       </div></div>
     </div>
   </div>
@@ -1919,10 +1944,11 @@ function renderCosts(p,D){
     const p2=bt.dataset.p;
     GROUPS.forEach(g=>{
       S.calib=S.calib||{};
-      if(p2==='bp') S.calib[g]={mat:1,svc:1};
-      else if(p2==='a2026'){ const f=CALA[g]['2026']||CALA[g]['2025']; if(f) S.calib[g]={mat:f.mat,svc:f.svc};
+      if(p2==='bp') S.calib[g]={'2025':{mat:1,svc:1},'2026':{mat:1,svc:1}};
+      else if(p2==='a2026'){ S.calib[g]=defCalAll(g);
         S.fixedFY=S.fixedFY||{}; S.fixedFY[g]=fixFY(g,'2026',true); }
-      else { const f=CAL[g][p2==='c2025'?'2025':'2026']; if(f) S.calib[g]={mat:f.mat,svc:f.svc};
+      else { const one=CAL[g][p2==='c2025'?'2025':'2026'];
+        if(one) S.calib[g]={'2025':{mat:one.mat,svc:one.svc},'2026':{mat:one.mat,svc:one.svc}};
         S.fixedFY=S.fixedFY||{}; S.fixedFY[g]=fixFY(g,p2==='c2025'?'2025':'2026',false); }
     });
     render();});
@@ -1975,7 +2001,7 @@ function renderItems(p,D){
   let items=DATA.items.filter(it=>String(it.y)===yr && byKey[it.c]);
   if(cl!=='*') items=items.filter(it=>it.c===cl);
   items=items.map(it=>{
-    const kk=catK(it.cat, byKey[it.c].group);
+    const kk=catK(it.cat, byKey[it.c].group, yr);
     const v=sum(it.v), rev=v*it.p, vcTot=v*it.vc*kk, mar=rev-vcTot;
     return {...it, V:v, rev, vcTot, mar, uVc: it.vc*kk, unit: it.p-it.vc*kk, kk};
   });
@@ -1985,8 +2011,8 @@ function renderItems(p,D){
   items.sort((a,b)=>b.rev-a.rev||Math.abs(b.V)-Math.abs(a.V));
 
   const negAll=DATA.items.filter(it=>String(it.y)===yr&&byKey[it.c]&&sum(it.v)>0
-      && (it.p-it.vc*catK(it.cat,byKey[it.c].group))<0);
-  const negLoss=negAll.reduce((s,it)=>s+sum(it.v)*(it.p-it.vc*catK(it.cat,byKey[it.c].group)),0);
+      && (it.p-it.vc*catK(it.cat,byKey[it.c].group,yr))<0);
+  const negLoss=negAll.reduce((s,it)=>s+sum(it.v)*(it.p-it.vc*catK(it.cat,byKey[it.c].group,yr)),0);
 
   p.innerHTML=`
   <div class="card">
@@ -2000,7 +2026,7 @@ function renderItems(p,D){
     ${negAll.length?`<div class="callout c"><b>${negAll.length} položiek s objemom sa predáva pod variabilným nákladom.</b>
       Celková strata na týchto položkách v roku ${yr}: <b>${eur(negLoss)}</b>.
       Sú to prvé kandidáti na úpravu ceny — bez akéhokoľvek vyjednávania o objemoch.
-      <br><span class="note">Počítané pri kalibrácii ${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g).mat)}/${nf2.format(kOf(g).svc)}`).join(' · ')};
+      <br><span class="note">Počítané pri kalibrácii ${yr} ${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g,yr).mat)}/${nf2.format(kOf(g,yr).svc)}`).join(' · ')};
       pri čistom cenníku BP by ich bolo ${DATA.items.filter(it=>String(it.y)===yr&&byKey[it.c]&&sum(it.v)>0&&(it.p-it.vc)<0).length}.</span></div>`:''}
     <div class="tscroll" id="it"></div>
   </div>`;
@@ -2359,7 +2385,7 @@ function negotiationSummary(R,M,needUp){
       Tvrdenie „ceny nepokrývajú náklady" by sa v rokovaní dalo vyvrátiť z našich vlastných čísel.</li>
     <li><b>Kde je argument silný.</b> Kalkulačný vzorec ukazuje, že jednotlivé výrobné operácie
       (tlač 4+4, obálkovanie) sú v cenníkoch ocenené pod internou kalkuláciou, aj keď v súčte za 2026
-      koeficient služieb vychádza na ${nf2.format(kOf('CGOS').svc)}. Cenník je teda zle
+      koeficient služieb vychádza na ${nf2.format(kOf('CGOS','2026').svc)}. Cenník je teda zle
       <i>rozdelený</i> medzi operácie — to je opraviteľné bez plošného zdražovania.</li>
     <li><b>Potrebné zvýšenie na cieľ ${pc1(S.targetNet)}:</b>
       <b>${isFinite(needUp)?((needUp>0?'+':'')+nf1.format(needUp)+' %'):'–'}</b> v priemere.
@@ -2428,7 +2454,8 @@ function renderIO(p,D){
       <b>Zmazaných klientov</b><span>${S.deleted.length}</span>
       <b>Metóda forecastu</b><span>${esc({season:'Sezónnosť 2025',avg3:'Priemer 3 mes.',plan:'Plán BP',manual:'Manuálne'}[S.fcMethod])}</span>
       <b>Alokácia fixných</b><span>${esc(allocLabel())}</span>
-      <b>Kalibrácia (materiál / služby)</b><span>${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g).mat)} / ${nf2.format(kOf(g).svc)}`).join(' · ')}</span>
+      <b>Kalibrácia 2026 (materiál / služby)</b><span>${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g,'2026').mat)} / ${nf2.format(kOf(g,'2026').svc)}`).join(' · ')}</span>
+      <b>Kalibrácia 2025 (materiál / služby)</b><span>${GROUPS.map(g=>`${esc(g)} ${nf2.format(kOf(g,'2025').mat)} / ${nf2.format(kOf(g,'2025').svc)}`).join(' · ')}</span>
       <b>Fixné náklady ročne</b><span>${GROUPS.map(g=>`${esc(g)} ${eur((S.fixedFY||{})[g]||0)}`).join(' · ')}</span>
       <b>Fee AZPR</b><span>${S.inclUplift?`zľava −${eur(96000)}/rok (2025, 2026) · CGOS-navýšenie +${eur(sum(DATA.meta.uplift2026))}/rok (2026)`:'nezahrnutý'}</span>
     </div>
@@ -2742,7 +2769,7 @@ function exportXlsx(what){
       t.push([g,+y,f.n,f.cen.mat,c.mat,f.mat,f.cen.svc,c.svc,f.svc,c.var,f.tot]);}));
     t.push([]);
     t.push(['Použité nastavenia']);
-    GROUPS.forEach(g=>t.push([g,'koef. materiál',kOf(g).mat,'koef. služby',kOf(g).svc,
+    GROUPS.forEach(g=>t.push([g,'koef. materiál 2026',kOf(g,'2026').mat,'koef. služby 2026',kOf(g,'2026').svc,
                               'fixné ročne',(S.fixedFY||{})[g]||0]));
     t.push(['Metóda alokácie',allocLabel()]);
     t.push(['Fee AZPR zahrnutý',S.inclUplift?'áno':'nie',sum(DATA.meta.uplift2026)]);
@@ -2768,7 +2795,7 @@ function exportXlsx(what){
     R.forEach(r=>{
       mh.push([r.label,2025,'Objem',...r.m25.vol,sum(r.m25.vol)]);
       mh.push([r.label,2025,'Tržba',...r.m25.rev,sum(r.m25.rev)]);
-      const kk=kOf(r.group), kM=kk.mat, kS=kk.svc;
+      const kk=kOf(r.group,'2026'), kM=kk.mat, kS=kk.svc;
       mh.push([r.label,2025,'Hrubá marža',...MON.map((_,i)=>r.m25.rev[i]-((r.m25.cat.ob[i]+r.m25.cat.pa[i])*kM+(r.m25.cat.ma[i]+r.m25.cat.sv[i])*kS)),r.y25.marAdj]);
       mh.push([r.label,2026,'Objem',...r.m26.vol,sum(r.m26.vol)]);
       mh.push([r.label,2026,'Tržba',...r.m26.rev,sum(r.m26.rev)]);
@@ -2796,7 +2823,7 @@ function exportXlsx(what){
     const byK={};R.forEach(r=>byK[r.key]=r);
     const it=[['Rok','Klient','Skupina','Položka','Kategória','Predajná cena','Variabilný náklad (kalibr.)','Hrubá marža/ks','Hrubá marža %','Objem','Tržba','Hrubá marža',...MON]];
     DATA.items.forEach(x=>{const r=byK[x.c];if(!r)return;
-      const kk=catK(x.cat,r.group), V=sum(x.v), u=x.p-x.vc*kk;
+      const kk=catK(x.cat,r.group,String(x.y)), V=sum(x.v), u=x.p-x.vc*kk;
       it.push([x.y,r.label,r.group,x.n,({ob:'obálka',pa:'papier',ma:'iný materiál',sv:'služba'})[x.cat],
                x.p,x.vc*kk,u,x.p?u/x.p:null,V,V*x.p,V*u,...x.v]);});
     add('Položky',it,0);
@@ -2826,7 +2853,8 @@ function exportXlsx(what){
     ['Zdroje',DATA.meta.sources.join(' · ')],['Skutočné mesiace 2026','1-'+YTD],
     ['Metóda forecastu',{season:'Sezónnosť 2025',avg3:'Priemer 3 mes.',plan:'Plán BP',manual:'Manuálne'}[S.fcMethod]],
     ['Alokácia fixných',allocLabel()],
-    ...GROUPS.map(g=>[`Kalibrácia ${g} (materiál / služby)`,kOf(g).mat,kOf(g).svc]),
+    ...GROUPS.map(g=>[`Kalibrácia ${g} 2025 (materiál / služby)`,kOf(g,'2025').mat,kOf(g,'2025').svc]),
+    ...GROUPS.map(g=>[`Kalibrácia ${g} 2026 (materiál / služby)`,kOf(g,'2026').mat,kOf(g,'2026').svc]),
     ...GROUPS.map(g=>[`Fixné ${g} ročne`,(S.fixedFY||{})[g]||0]),
     ['Fee AZPR – CGOS-navýšenie 2026',S.inclUplift?sum(DATA.meta.uplift2026):0],
     ['Mesiacov v nákladovej karte 2026',S.card['CGOS']['2026'].n],
@@ -2966,9 +2994,12 @@ document.addEventListener('change',e=>{
     render();
   }
   if(t.dataset && t.dataset.cal){
-    const [g,f]=t.dataset.cal.split('|');
-    S.calib=S.calib||{}; S.calib[g]=S.calib[g]||{mat:1,svc:1};
-    S.calib[g][f]=Math.max(0.2,+t.value||1); render();
+    const [g,y,f]=t.dataset.cal.split('|');
+    S.calib=S.calib||{}; S.calib[g]=S.calib[g]||{};
+    if(S.calib[g].mat!=null){ const old={mat:S.calib[g].mat,svc:S.calib[g].svc};
+      S.calib[g]={'2025':{...old},'2026':{...old}}; }          // migrácia starého tvaru
+    S.calib[g][y]=S.calib[g][y]||{mat:1,svc:1};
+    S.calib[g][y][f]=Math.max(0.2,+t.value||1); render();
   }
   if(t.dataset && t.dataset.w!==undefined && t.dataset.w!==''){
     S.allocWeights[t.dataset.w]= t.value===''?null:+t.value; render(); }
@@ -3012,6 +3043,7 @@ render();
 window.S=S; window.DATA=DATA; window.render=render; window.WEB=WEB;
 window.save=save; window.paintPub=paintPub; window.setS=o=>{S=o;};
 window.derive=derive; window.agg=agg; window.materialShares=materialShares; window.GROUPS=GROUPS;
+window.GROUPS0=GROUPS0; window.fixFY=fixFY; window.CAL=CAL; window.CALA=CALA; window.SCOPEF=SCOPEF; window.kOf=kOf; window.cenBaskets=cenBaskets;
 window.publishDataset=publishDataset; window.pullShared=pullShared; window.publishState=publishState;
 
 }
