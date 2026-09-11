@@ -95,9 +95,24 @@ nav.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(-
 .tiles{grid-template-columns:repeat(auto-fit,minmax(186px,1fr))}
 .tile{background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:13px 14px}
 .tile .lab{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;
-  display:flex;align-items:center;gap:5px}
+  display:flex;align-items:center;gap:8px;justify-content:space-between}
+.tile .lab .yr{color:var(--s1);font-weight:700;letter-spacing:.03em;flex:none}
+.panels{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:900px){.panels{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)}}
+.panel{border:1px solid var(--border);border-radius:var(--r);background:var(--surface-1);
+  padding:12px 14px 14px}
+.panel h4{margin:0 0 2px;font-size:13px}
+.panel .ph{color:var(--muted);font-size:11.5px;margin:0 0 12px}
+.panel .field{margin-bottom:14px}
+.panel .field:last-child{margin-bottom:0}
+.calc{margin-top:12px;border-top:1px solid var(--border);padding-top:10px}
+.calc .crow{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:12.5px}
+.calc .crow+.crow{border-top:1px dotted var(--grid)}
+.calc .crow i{color:var(--muted);font-style:normal;font-size:11.5px}
+.calc .crow.tot{font-weight:680;border-top:1px solid var(--border);margin-top:3px;padding-top:6px}
+.calc .crow span:last-child{white-space:nowrap}
 .tile .val{font-size:23px;font-weight:640;letter-spacing:-.02em;margin-top:5px;line-height:1.15}
-.tile .sub{font-size:13.5px;font-weight:500;color:var(--ink-2);margin-top:6px;line-height:1.35;
+.tile .sub{font-size:var(--subsize,13.5px);font-weight:500;color:var(--ink-2);margin-top:6px;line-height:1.35;
   display:flex;gap:7px;align-items:baseline;flex-wrap:wrap}
 .tile .sub .delta{white-space:nowrap}
 /* Prehľad má vždy 8 dlaždíc – na širokej obrazovke 4+4, nie 7+1 */
@@ -555,7 +570,8 @@ const DEFAULTS = () => ({
   variant: 'A',              // A uplift | B pausal | C target
   uplift: 6,                 // % (variant A)
   upliftOverride: {},
-  matUplift: 8,              // % (variant B – materiál)
+  matMarkup: 25,             // % prirážka k nákupnej cene materiálu (variant B)
+  subSize: 13.5,             // px – veľkosť porovnávacieho riadku v dlaždiciach
   retainerMode: 'auto',      // auto | manual
   retainer: {},              // key -> €/mesiac
   retainerCover: 100,        // % pokrytia servisných tržieb 2026 paušálom
@@ -765,12 +781,17 @@ function derive(){
     const up = (S.upliftOverride[r.key]!=null ? +S.upliftOverride[r.key] : S.uplift)/100;
     if(S.variant==='B'){
       const svcRev26 = b.rev*(1-ms);
-      const matUnit26 = b.vol? (b.rev*ms)/b.vol : 0;
       const R = (S.retainerMode==='manual' && S.retainer[r.key]!=null)
                 ? +S.retainer[r.key]
                 : svcRev26*(S.retainerCover||100)/100/12;
-      rev = R*12 + vol*matUnit26*(1+(S.matUplift||0)/100);
-      r.s27_retainer = R;
+      // materiál sa oceňuje ako nákupná cena + prirážka (cost-plus), nie percentom
+      // z dnešnej predajnej ceny. Nákup 2027 = nákup 2026 × objem × inflácia materiálu.
+      const buy26 = b.matAdj || 0;
+      const buy27 = buy26*(1-deg)*(1+(S.costInfl||0)/100);
+      const matRev27 = buy27*(1+(S.matMarkup||0)/100);
+      rev = R*12 + matRev27;
+      r.s27_retainer = R; r.s27_buy27 = buy27; r.s27_matRev27 = matRev27;
+      r.s27_matRev26 = b.rev*ms; r.s27_buy26 = buy26;
     } else {
       rev = vol*uP*(1+up);
       r.s27_retainer = null;
@@ -858,11 +879,12 @@ function materialShares(){
 
 /* aggregation of a set of rows */
 function agg(rows, pick){
-  const o={rev:0,vc:0,vcAdj:0,mar:0,marAdj:0,vol:0,fix:0,net:0};
+  const o={rev:0,vc:0,vcAdj:0,mar:0,marAdj:0,vol:0,fix:0,net:0,matAdj:0,svcAdj:0};
   rows.forEach(r=>{ const x=pick(r); if(!x) return;
     o.rev+=x.rev||0; o.vc+=x.vc||0; o.vcAdj+=(x.vcAdj??x.vc)||0;
     o.mar+=x.mar||0; o.marAdj+=(x.marAdj??x.mar)||0; o.vol+=x.vol||0;
     o.fix+=x.fix||0; o.net+=(x.net!=null?x.net:0);
+    o.matAdj+=x.matAdj||0; o.svcAdj+=x.svcAdj||0;
   });
   o.mpc = o.rev? o.marAdj/o.rev*100 : 0;
   o.uP = o.vol? o.rev/o.vol : 0;
@@ -1121,6 +1143,7 @@ function buildTabs(){
   document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{active=b.dataset.t;render();});
 }
 function render(){
+  document.documentElement.style.setProperty('--subsize',(S.subSize||13.5)+'px');
   buildTabs(); buildScope();
   const st=document.getElementById('subT');
   if(st) st.innerHTML='Cromwell a.s. · rozsah: <b>'+({cgos:'CGOS',az:'AZ Prima',all:'CGOS + AZ Prima'}[S.scope])
@@ -1197,6 +1220,9 @@ function renderOverview(p,D){
       ${ctl({t:'seg',label:'Obdobie',val:S.ovYear,
         opts:[['2026','2026 (YTD 1–'+YTD+')'],['2025','2025 (celý rok)'],['both','Oba roky']],
         on:set(v=>S.ovYear=v)})}
+      ${ctl({t:'seg',label:'Veľkosť porovnávacieho riadku',val:String(S.subSize),
+        opts:[['11.5','malá'],['13.5','väčšia'],['15','najväčšia']],
+        on:set(v=>S.subSize=+v)})}
     </div>
     <div class="grid tiles" id="tiles"></div>
     <details class="acc"><summary>Zhrnutie: objem klesá, výsledok držíme cenou a úsporou fixných nákladov</summary>
@@ -1252,37 +1278,37 @@ function renderOverview(p,D){
   const T=[];
   if(S.ovYear==='2025'){
     const uP24 = pv25.vol ? pv25.rev/pv25.vol : 0;
-    T.push(tile('Tržba 2025', eur(a25.rev), pv25.rev?`2024: ${eur(pv25.rev)}`:'', pv25.rev?dlt(a25.rev,pv25.rev):null));
-    T.push(tile('Objem 2025', num(a25.vol), pv25.vol?`2024: ${num(pv25.vol)}`:'', pv25.vol?dlt(a25.vol,pv25.vol):null));
-    T.push(tile('Cena / zásielku', e4(a25.uP), uP24?`2024: ${e4(uP24)}`:'', uP24?dlt(a25.uP,uP24):null));
-    T.push(tile('Hrubá marža 2025', eur(a25.marAdj), `${pc1(a25.mpc)} z tržby`, null));
-    T.push(tile('Plnenie plánu 2025', pc1(p25.rev? a25.rev/p25.rev*100:NaN), `plán ${eur(p25.rev)}`, null));
-    T.push(tile('Variabilné náklady 2025', eur(a25.vcAdj), `${pc1(a25.rev?a25.vcAdj/a25.rev*100:NaN)} z tržby`, null));
-    T.push(tile('Fixné náklady 2025', eur(fix25), `${e4(a25.vol?fix25/a25.vol:NaN)}/zás.`, null));
-    T.push(tile('Výsledok po fixných', eur(net25), `${pc1(a25.rev?net25/a25.rev*100:NaN)} z tržby`, null, net25<0?'crit':null));
+    T.push(tile('Tržba', eur(a25.rev), pv25.rev?`2024: ${eur(pv25.rev)}`:'', pv25.rev?dlt(a25.rev,pv25.rev):null,null,'2025'));
+    T.push(tile('Objem', num(a25.vol), pv25.vol?`2024: ${num(pv25.vol)}`:'', pv25.vol?dlt(a25.vol,pv25.vol):null,null,'2025'));
+    T.push(tile('Cena / zásielku', e4(a25.uP), uP24?`2024: ${e4(uP24)}`:'', uP24?dlt(a25.uP,uP24):null,null,'2025'));
+    T.push(tile('Hrubá marža', eur(a25.marAdj), `${pc1(a25.mpc)} z tržby`, null,null,'2025'));
+    T.push(tile('Plnenie plánu', pc1(p25.rev? a25.rev/p25.rev*100:NaN), `plán ${eur(p25.rev)}`, null,null,'2025'));
+    T.push(tile('Variabilné náklady', eur(a25.vcAdj), `${pc1(a25.rev?a25.vcAdj/a25.rev*100:NaN)} z tržby`, null,null,'2025'));
+    T.push(tile('Fixné náklady', eur(fix25), `${e4(a25.vol?fix25/a25.vol:NaN)}/zás.`, null,null,'2025'));
+    T.push(tile('Výsledok po fixných', eur(net25), `${pc1(a25.rev?net25/a25.rev*100:NaN)} z tržby`, null, net25<0?'crit':null,'2025'));
     tilesEl.className='grid tiles'; tilesEl.innerHTML=T.join('');
   } else if(S.ovYear==='both'){
     // rovnaký tvar dlaždice ako pri jednom roku: 2026 veľké, 2025 a zmena pod tým
     const ppD=(x,y)=>{ const d=x-y;
       return {t:(d>0?'+':'')+nf1.format(d)+' p.b.', c:Math.abs(d)<0.05?'flat':(d>0?'pos':'neg')}; };
-    T.push(tile('Objem (zásielok)', num(a26.vol), `2025: ${num(a25.vol)}`, dlt(a26.vol,a25.vol)));
-    T.push(tile('Tržba', eur(a26.rev), `2025: ${eur(a25.rev)}`, dlt(a26.rev,a25.rev)));
-    T.push(tile('Cena / zásielku', e4(a26.uP), `2025: ${e4(a25.uP)}`, dlt(a26.uP,a25.uP)));
-    T.push(tile('Hrubá marža', eur(a26.marAdj), `2025: ${eur(a25.marAdj)}`, dlt(a26.marAdj,a25.marAdj)));
-    T.push(tile('Hrubá maržovosť', pc1(a26.mpc), `2025: ${pc1(a25.mpc)}`, ppD(a26.mpc,a25.mpc)));
-    T.push(tile('Variabilné náklady', eur(a26.vcAdj), `2025: ${eur(a25.vcAdj)}`, dlt(a26.vcAdj,a25.vcAdj,true)));
-    T.push(tile('Fixné náklady', eur(fix26), `2025: ${eur(fix25)}`, dlt(fix26,fix25,true)));
-    T.push(tile('Výsledok po fixných', eur(net26), `2025: ${eur(net25)}`, dlt(net26,net25), net26<0?'crit':null));
+    T.push(tile('Objem (zásielok)', num(a26.vol), `2025: ${num(a25.vol)}`, dlt(a26.vol,a25.vol),null,'2026'));
+    T.push(tile('Tržba', eur(a26.rev), `2025: ${eur(a25.rev)}`, dlt(a26.rev,a25.rev),null,'2026'));
+    T.push(tile('Cena / zásielku', e4(a26.uP), `2025: ${e4(a25.uP)}`, dlt(a26.uP,a25.uP),null,'2026'));
+    T.push(tile('Hrubá marža', eur(a26.marAdj), `2025: ${eur(a25.marAdj)}`, dlt(a26.marAdj,a25.marAdj),null,'2026'));
+    T.push(tile('Hrubá maržovosť', pc1(a26.mpc), `2025: ${pc1(a25.mpc)}`, ppD(a26.mpc,a25.mpc),null,'2026'));
+    T.push(tile('Variabilné náklady', eur(a26.vcAdj), `2025: ${eur(a25.vcAdj)}`, dlt(a26.vcAdj,a25.vcAdj,true),null,'2026'));
+    T.push(tile('Fixné náklady', eur(fix26), `2025: ${eur(fix25)}`, dlt(fix26,fix25,true),null,'2026'));
+    T.push(tile('Výsledok po fixných', eur(net26), `2025: ${eur(net25)}`, dlt(net26,net25), net26<0?'crit':null,'2026'));
     tilesEl.className='grid tiles'; tilesEl.innerHTML=T.join('');
   } else {
-    T.push(tile(`Tržba 1–${YTD}`, eur(y26.rev), `2025: ${eur(y25.rev)}`, dlt(y26.rev,y25.rev)));
-    T.push(tile(`Objem 1–${YTD}`, num(y26.vol), `2025: ${num(y25.vol)}`, dlt(y26.vol,y25.vol)));
-    T.push(tile('Cena / zásielku', e4(y26.uP), `2025: ${e4(y25.uP)}`, dlt(y26.uP,y25.uP)));
-    T.push(tile(`Hrubá marža 1–${YTD}`, eur(y26.marAdj), `${pc1(y26.mpc)} z tržby`, dlt(y26.mpc,y25.mpc)));
-    T.push(tile(`Plnenie plánu 1–${YTD}`, pc1(pl26.rev? y26.rev/pl26.rev*100:NaN), `plán ${eur(pl26.rev)}`, null));
-    T.push(tile('Tržba 2026 – odhad', eur(a26.rev), `2025: ${eur(a25.rev)}`, dlt(a26.rev,a25.rev)));
-    T.push(tile('Fixné náklady 2026', eur(fix26), `${e4(a26.vol?fix26/a26.vol:NaN)}/zás.`, null));
-    T.push(tile('Výsledok po fixných', eur(net26), `${pc1(a26.rev?net26/a26.rev*100:NaN)} z tržby`, null, net26<0?'crit':null));
+    T.push(tile('Tržba', eur(y26.rev), `2025: ${eur(y25.rev)}`, dlt(y26.rev,y25.rev),null,`1–${YTD}/2026`));
+    T.push(tile('Objem', num(y26.vol), `2025: ${num(y25.vol)}`, dlt(y26.vol,y25.vol),null,`1–${YTD}/2026`));
+    T.push(tile('Cena / zásielku', e4(y26.uP), `2025: ${e4(y25.uP)}`, dlt(y26.uP,y25.uP),null,`1–${YTD}/2026`));
+    T.push(tile('Hrubá marža', eur(y26.marAdj), `${pc1(y26.mpc)} z tržby`, dlt(y26.mpc,y25.mpc),null,`1–${YTD}/2026`));
+    T.push(tile('Plnenie plánu', pc1(pl26.rev? y26.rev/pl26.rev*100:NaN), `plán ${eur(pl26.rev)}`, null,null,`1–${YTD}/2026`));
+    T.push(tile('Tržba – odhad', eur(a26.rev), `2025: ${eur(a25.rev)}`, dlt(a26.rev,a25.rev),null,'2026'));
+    T.push(tile('Fixné náklady', eur(fix26), `${e4(a26.vol?fix26/a26.vol:NaN)}/zás.`, null,null,'2026'));
+    T.push(tile('Výsledok po fixných', eur(net26), `${pc1(a26.rev?net26/a26.rev*100:NaN)} z tržby`, null, net26<0?'crit':null,'2026'));
     tilesEl.className='grid tiles'; tilesEl.innerHTML=T.join('');
   }
 
@@ -1370,8 +1396,8 @@ function scopeWarn(M){
         sú podhodnotené o rovnaký podiel.`}
       Kým sa rozsah karty nepotvrdí, ber tieto čísla ako orientačné.</div>`;
 }
-function tile(lab,val,sub,d,tone){
-  return `<div class="tile"><div class="lab">${esc(lab)}</div>
+function tile(lab,val,sub,d,tone,yr){
+  return `<div class="tile"><div class="lab"><span>${esc(lab)}</span>${yr?`<span class="yr">${esc(yr)}</span>`:''}</div>
     <div class="val" ${tone==='crit'?'style="color:var(--crit)"':''}>${val}</div>
     <div class="sub">${sub||''} ${d?`<span class="delta ${d.c}">${d.t}</span>`:''}</div></div>`;
 }
@@ -2136,32 +2162,66 @@ function renderPlan(p,D){
   const needRev=R.reduce((s,r)=>s+(isFinite(r.s27.needRev)?r.s27.needRev:0),0);
   const baseRev27=R.reduce((s,r)=>s+r.s27.vol*r.s27.uP26,0);
   const needUp=baseRev27? (needRev/baseRev27-1)*100 : NaN;
+  // podklady pre variant B (paušál + materiál s prirážkou)
+  const matSum = R.reduce((o,r)=>{
+    o.buy26+=r.s27_buy26||0; o.matRev26+=r.s27_matRev26||0;
+    o.buy27+=r.s27_buy27||0; o.matRev27+=r.s27_matRev27||0;
+    o.ret27+=(r.s27_retainer||0)*12; return o; },
+    {buy26:0,matRev26:0,buy27:0,matRev27:0,ret27:0});
+  matSum.svcRev26 = b26.rev - matSum.matRev26;
+  matSum.markup26 = matSum.buy26? (matSum.matRev26/matSum.buy26-1)*100 : 0;
 
   p.innerHTML=`
   <div class="card">
     <div class="hd"><h2>Scenár 2027</h2>
       <span class="note">Základ = rok 2026 (skutočnosť 1–${YTD} + forecast). Fixné náklady 2027 v rozsahu
         ${esc({cgos:'CGOS',az:'AZ Prima',all:'CGOS + AZ Prima'}[S.scope])}: ${eur(agg(R,r=>r.s27).fix)}.</span></div>
-    <div class="row">
-      ${ctl({t:'range',label:'Pokles objemov 2027',min:0,max:35,step:0.5,val:S.degression,
-        disp:v=>'−'+nf1.format(v)+' %',hint:'tvoj predpoklad 15–20 %',on:set(v=>S.degression=v)})}
-      ${ctl({t:'range',label:'Rast variabilných nákladov',min:-5,max:20,step:0.5,val:S.costInfl,
-        disp:v=>(v>0?'+':'')+nf1.format(v)+' %',on:set(v=>S.costInfl=v)})}
-      ${ctl({t:'range',label:'Rast fixných nákladov',min:-10,max:15,step:0.5,val:S.fixInfl,
-        disp:v=>(v>0?'+':'')+nf1.format(v)+' %',on:set(v=>S.fixInfl=v)})}
-    </div>
-    <div class="row" style="margin-top:14px">
-      ${ctl({t:'seg',label:'Variant oceňovania',val:S.variant,
-        opts:[['A','A · Zvýšenie cien'],['B','B · Paušál + materiál'],['C','C · Cieľová maržovosť']],
-        on:set(v=>S.variant=v)})}
-      ${S.variant==='A'?ctl({t:'range',label:'Zvýšenie cien',min:0,max:60,step:0.5,val:S.uplift,
-        disp:v=>'+'+nf1.format(v)+' %',on:set(v=>S.uplift=v)}):''}
-      ${S.variant==='B'?ctl({t:'range',label:'Paušál pokryje zo servisných tržieb 2026',min:50,max:150,step:1,val:S.retainerCover,
-        disp:v=>nf0.format(v)+' %',hint:'100 % = servisné tržby nezávisia od objemu',on:set(v=>S.retainerCover=v)}):''}
-      ${S.variant==='B'?ctl({t:'range',label:'Zvýšenie cien materiálu',min:0,max:40,step:0.5,val:S.matUplift,
-        disp:v=>'+'+nf1.format(v)+' %',on:set(v=>S.matUplift=v)}):''}
-      ${S.variant==='C'?ctl({t:'range',label:'Cieľová čistá maržovosť (po fixných)',min:0,max:35,step:0.5,val:S.targetNet,
-        disp:v=>nf1.format(v)+' %',on:set(v=>S.targetNet=v)}):''}
+    <div class="panels">
+      <div class="panel">
+        <h4>Predpoklady o roku 2027</h4>
+        <p class="ph">Platia pre všetky varianty oceňovania.</p>
+        ${ctl({t:'range',label:'Pokles objemov',min:0,max:35,step:0.5,val:S.degression,
+          disp:v=>'−'+nf1.format(v)+' %',hint:'predpoklad podľa vývoja posledných rokov: 15–20 %',
+          on:set(v=>S.degression=v)})}
+        ${ctl({t:'range',label:'Rast variabilných nákladov',min:-5,max:20,step:0.5,val:S.costInfl,
+          disp:v=>(v>0?'+':'')+nf1.format(v)+' %',hint:'na jednotku — materiál, tlač, obálkovanie',
+          on:set(v=>S.costInfl=v)})}
+        ${ctl({t:'range',label:'Rast fixných nákladov',min:-10,max:15,step:0.5,val:S.fixInfl,
+          disp:v=>(v>0?'+':'')+nf1.format(v)+' %',
+          hint:`fixné náklady 2026: ${eur(b26.fix)}`,
+          on:set(v=>S.fixInfl=v)})}
+      </div>
+      <div class="panel">
+        <h4>Cenové opatrenie</h4>
+        <p class="ph">Ako dorovnáme výpadok z poklesu objemu.</p>
+        ${ctl({t:'seg',val:S.variant,
+          opts:[['A','A · Zvýšenie cien'],['B','B · Paušál + materiál'],['C','C · Cieľová maržovosť']],
+          on:set(v=>S.variant=v)})}
+        ${S.variant==='A'?ctl({t:'range',label:'Plošné zvýšenie jednotkových cien',min:0,max:60,step:0.5,val:S.uplift,
+          disp:v=>'+'+nf1.format(v)+' %',
+          hint:`cena/zásielku 2026: ${e4(b26.uP)} → ${e4(b26.uP*(1+S.uplift/100))}`,
+          on:set(v=>S.uplift=v)}):''}
+        ${S.variant==='B'?ctl({t:'range',label:'Paušál za služby — pokrytie servisných tržieb 2026',
+          min:50,max:150,step:1,val:S.retainerCover,disp:v=>nf0.format(v)+' %',
+          hint:`servisné tržby 2026: ${eur(matSum.svcRev26)} → paušál ${eur(matSum.ret27/12)}/mes.`,
+          on:set(v=>S.retainerCover=v)}):''}
+        ${S.variant==='B'?ctl({t:'range',label:'Prirážka k nákupnej cene materiálu',min:0,max:80,step:0.5,val:S.matMarkup,
+          disp:v=>'+'+nf1.format(v)+' %',
+          hint:`dnešná prirážka je <b>+${nf1.format(matSum.markup26)} %</b> (tržba z materiálu / nákup materiálu 2026) —
+                rovnaká hodnota znamená nezmenené ceny materiálu`,
+          on:set(v=>S.matMarkup=v)}):''}
+        ${S.variant==='C'?ctl({t:'range',label:'Cieľová výsledková maržovosť (po fixných)',min:0,max:35,step:0.5,val:S.targetNet,
+          disp:v=>nf1.format(v)+' %',hint:`2026: ${pc1(b26.netPc)}`,on:set(v=>S.targetNet=v)}):''}
+        ${S.variant==='B'?`<div class="calc">
+          <div class="crow"><span>Nákup materiálu 2025 <i>(kalibrovaný, celý rok)</i></span><span>${eur(agg(R,r=>r.y25).matAdj)}</span></div>
+          <div class="crow"><span>Nákup materiálu 2026 <i>(skutočnosť 1–${YTD} + forecast)</i></span><span>${eur(matSum.buy26)}</span></div>
+          <div class="crow"><span>Tržba z materiálu 2026 <i>(podľa cenníka)</i></span><span>${eur(matSum.matRev26)}</span></div>
+          <div class="crow"><span>Nákup materiálu 2027 <i>(objem × inflácia)</i></span><span>${eur(matSum.buy27)}</span></div>
+          <div class="crow tot"><span>Tržba z materiálu 2027</span><span>${eur(matSum.matRev27)}</span></div>
+          <div class="crow"><span>Paušál za služby 2027</span><span>${eur(matSum.ret27)}</span></div>
+          <div class="crow tot"><span>Tržba spolu 2027</span><span>${eur(matSum.matRev27+matSum.ret27)}</span></div>
+        </div>`:''}
+      </div>
     </div>
     ${variantNote()}
     <div class="grid tiles" style="margin-top:14px" id="pt"></div>
@@ -2191,15 +2251,14 @@ function renderPlan(p,D){
   </div>`;
 
   const T=[];
-  T.push(tile('Objem 2027',num(s27.vol),`2026: ${num(b26.vol)}`,dlt(s27.vol,b26.vol)));
-  T.push(tile('Tržba 2027',eur(s27.rev),`2026: ${eur(b26.rev)}`,dlt(s27.rev,b26.rev)));
-  T.push(tile('Cena / zásielku 2027',e4(s27.uP),`2026: ${e4(b26.uP)}`,dlt(s27.uP,b26.uP)));
-  T.push(tile('Hrubá marža 2027',eur(s27.marAdj),`${pc1(s27.mpc)} (2026: ${pc1(b26.mpc)})`,dlt(s27.mpc,b26.mpc)));
-  T.push(tile('Fixné náklady 2027',eur(s27.fix),`${pc1(s27.rev?s27.fix/s27.rev*100:NaN)} z tržby`,null));
-  T.push(tile('Výsledok po fixných 2027',eur(s27.net),`2026: ${eur(b26.net)}`,dlt(s27.net,b26.net),s27.net<0?'crit':null));
-  T.push(tile('Výsledková maržovosť 2027',pc1(s27.netPc),`2026: ${pc1(b26.netPc)}`,dlt(s27.netPc,b26.netPc)));
-  T.push(tile('Potrebné zvýšenie na cieľ',isFinite(needUp)?((needUp>0?'+':'')+nf1.format(needUp)+' %'):'–',
-        `aby čistá maržovosť = ${pc1(S.targetNet)}`,null));
+  T.push(tile('Objem',num(s27.vol),`2026: ${num(b26.vol)}`,dlt(s27.vol,b26.vol),null,'2027'));
+  T.push(tile('Tržba',eur(s27.rev),`2026: ${eur(b26.rev)}`,dlt(s27.rev,b26.rev),null,'2027'));
+  T.push(tile('Cena / zásielku',e4(s27.uP),`2026: ${e4(b26.uP)}`,dlt(s27.uP,b26.uP),null,'2027'));
+  T.push(tile('Hrubá marža',eur(s27.marAdj),`${pc1(s27.mpc)} (2026: ${pc1(b26.mpc)})`,dlt(s27.mpc,b26.mpc),null,'2027'));
+  T.push(tile('Variabilné náklady',eur(s27.vc),`2026: ${eur(b26.vcAdj)}`,dlt(s27.vc,b26.vcAdj,true),null,'2027'));
+  T.push(tile('Fixné náklady',eur(s27.fix),`2026: ${eur(b26.fix)}`,dlt(s27.fix,b26.fix,true),null,'2027'));
+  T.push(tile('Výsledok po fixných',eur(s27.net),`2026: ${eur(b26.net)}`,dlt(s27.net,b26.net),s27.net<0?'crit':null,'2027'));
+  T.push(tile('Výsledková maržovosť',pc1(s27.netPc),`2026: ${pc1(b26.netPc)}`,dlt(s27.netPc,b26.netPc),null,'2027'));
   document.getElementById('pt').innerHTML=T.join('');
 
   // waterfall
@@ -2260,7 +2319,7 @@ function renderPlan(p,D){
 }
 function variantShort(){
   if(S.variant==='A') return `zvýšenie cien +${nf1.format(S.uplift)} %`;
-  if(S.variant==='B') return `paušál ${nf0.format(S.retainerCover)} % servisných tržieb + materiál +${nf1.format(S.matUplift)} %`;
+  if(S.variant==='B') return `paušál ${nf0.format(S.retainerCover)} % servisných tržieb + materiál s prirážkou +${nf1.format(S.matMarkup)} %`;
   return `cieľová maržovosť ${nf1.format(S.targetNet)} %`;
 }
 function variantNote(){
@@ -2748,7 +2807,7 @@ function exportXlsx(what){
       ['Pokles objemov %',-S.degression/100],['Rast variabilných nákladov %',S.costInfl/100],
       ['Rast fixných nákladov %',S.fixInfl/100],['Zvýšenie cien % (variant A)',S.uplift/100],
       ['Paušál pokryje % servisných tržieb (variant B)',S.retainerCover/100],
-      ['Zvýšenie cien materiálu % (variant B)',S.matUplift/100],
+      ['Prirážka k nákupnej cene materiálu % (variant B)',S.matMarkup/100],
       ['Cieľová čistá maržovosť % (variant C)',S.targetNet/100],[],
       ['Klient','Skupina','Pokles %','Objem 2026','Objem 2027','Tržba 2026','Tržba 2027','Δ tržba %',
        'Cena/zás. 2026','Cena/zás. 2027','Var. nákl. 2027','Hrubá marža 2027','Hrubá maržovosť % 2027',
@@ -2952,6 +3011,7 @@ if(S.theme) document.documentElement.setAttribute('data-theme',S.theme);
 render();
 window.S=S; window.DATA=DATA; window.render=render; window.WEB=WEB;
 window.save=save; window.paintPub=paintPub; window.setS=o=>{S=o;};
+window.derive=derive; window.agg=agg; window.materialShares=materialShares; window.GROUPS=GROUPS;
 window.publishDataset=publishDataset; window.pullShared=pullShared; window.publishState=publishState;
 
 }
