@@ -464,7 +464,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* ---------- obnova hesla z e-mailového odkazu ---------- */
   const hashP = new URLSearchParams((location.hash || '').replace(/^#/, ''));
   const qsP   = new URLSearchParams(location.search || '');
-  let RECOVERY = hashP.get('type') === 'recovery' || qsP.get('type') === 'recovery';
+  // recovery = obnova hesla, invite = pozvánka, signup = potvrdenie registrácie —
+  // všetky tri končia rovnako: používateľ si musí nastaviť heslo
+  const LINK_TYPE = hashP.get('type') || qsP.get('type') || '';
+  const PWD_TYPES = ['recovery', 'invite', 'signup'];
+  let RECOVERY = PWD_TYPES.includes(LINK_TYPE);
 
   const errDesc = hashP.get('error_description') || qsP.get('error_description');
   if(errDesc){
@@ -477,7 +481,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     $('gForm').classList.add('gate-hidden');
     $('gSeed').classList.add('gate-hidden');
     $('gPwd').classList.remove('gate-hidden');
-    if(!errDesc) msg('Odkaz je overený. Zadaj nové heslo.','ok');
+    if(!errDesc) msg(LINK_TYPE === 'invite'
+      ? 'Vitaj v kokpite. Nastav si heslo, ktorým sa budeš prihlasovať.'
+      : 'Odkaz je overený. Zadaj nové heslo.','ok');
   }
 
   $('gPwdSave').onclick = async () => {
@@ -495,7 +501,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   };
   $('gPwd2').addEventListener('keydown', e => { if(e.key==='Enter') $('gPwdSave').click(); });
 
-  sb.auth.onAuthStateChange((ev) => { if(ev === 'PASSWORD_RECOVERY') showPwdForm(); });
+  sb.auth.onAuthStateChange((ev) => {
+    if(ev === 'PASSWORD_RECOVERY') showPwdForm();
+    // pozvánka prichádza ako SIGNED_IN – formulár otvor len ak to hovorí adresa
+    if(ev === 'SIGNED_IN' && PWD_TYPES.includes(LINK_TYPE)) showPwdForm();
+  });
 
   /* ---------- existujúca relácia ---------- */
   if(RECOVERY){
