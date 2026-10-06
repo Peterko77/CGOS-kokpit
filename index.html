@@ -773,10 +773,31 @@ function baseClients(){
   }
   return out;
 }
+/* Import BP prepisuje tržbu, var. náklady, maržu a objem, ale nie rozpad nákladov
+   na materiál/služby (ob, pa, ma, sv), z ktorého sa počítajú kalibrované náklady.
+   Nový mesiac by tak mal nulové náklady (marža 100 %) a revidovaný mesiac starý rozpad.
+   Preto sa kategórie každého mesiaca prepočítajú tak, aby ich súčet = vc mesiaca:
+   s vlastným mixom mesiaca, ak ho má, inak s priemerným mixom klienta za rok. */
+const CAT_F=['ob','pa','ma','sv'];
+function syncCats(Y){
+  if(!Y || !Y.vc) return Y;
+  const o={...Y}; CAT_F.forEach(f=>o[f]=(Y[f]||Z12()).slice());
+  const tot={ob:0,pa:0,ma:0,sv:0}; let all=0;
+  for(let m=0;m<12;m++) CAT_F.forEach(f=>{ tot[f]+=o[f][m]||0; all+=o[f][m]||0; });
+  for(let m=0;m<12;m++){
+    const v=+Y.vc[m]||0; if(v<=0) continue;
+    const s=CAT_F.reduce((t,f)=>t+(o[f][m]||0),0);
+    if(Math.abs(s-v)<0.01) continue;
+    if(s>0) CAT_F.forEach(f=>o[f][m]=(o[f][m]||0)*v/s);
+    else if(all>0) CAT_F.forEach(f=>o[f][m]=v*tot[f]/all);
+    else o.sv[m]=v;                                   // bez akéhokoľvek mixu: celé ako služby
+  }
+  return o;
+}
 function mergeY(base, ed){
   const o = {'2025':{...base['2025']}, '2026':{...base['2026']}};
-  if(!ed) return o;
-  for(const y of ['2025','2026']) if(ed[y]) for(const f in ed[y]) o[y][f] = ed[y][f];
+  if(ed) for(const y of ['2025','2026']) if(ed[y]) for(const f in ed[y]) o[y][f] = ed[y][f];
+  o['2026'] = syncCats(o['2026']);
   return o;
 }
 function emptyYear(){
@@ -1309,19 +1330,21 @@ function renderOverview(p,D){
   const p25=aggPlain(all,r=>r.p25), pv25=aggPlain(all,r=>r.pv25);
   const fix25=gInView.reduce((s,g)=>s+fixFY(g,'2025',S.scopeAdj),0);
   const net25=a25.marAdj-fix25;
-  const YR={'2026':'2026','2025':'2025','both':'oba roky'}[S.ovYear];
+  const YR={'2026':'2026','2026fy':'2026','2025':'2025','both':'oba roky'}[S.ovYear];
 
   p.innerHTML=`
   <div class="card">
     <div class="hd"><h2>Výkon: ${esc({cgos:'CGOS',az:'AZ Prima',all:'CGOS + AZ Prima'}[S.scope])}</h2>
       <span class="note">${S.ovYear==='2025'
         ? 'Celý rok <b>2025</b>, porovnanie s rokom 2024.'
+        : S.ovYear==='2026fy'
+        ? `Celý rok <b>2026</b> = skutočnosť 1–${YTD} + forecast ${YTD+1}–12 (${esc({season:'sezónnosť 2025',avg3:'priemer 3 mes.',plan:'plán BP',manual:'ručný forecast'}[S.fcMethod]||'')}), porovnanie s celým rokom 2025.`
         : S.ovYear==='both'
         ? `Celý rok <b>2025</b> vs <b>2026</b> (skutočnosť 1–${YTD} + forecast ${YTD+1}–12).`
         : `Rovnaké mesiace <b>1–${YTD}/2025</b> vs <b>1–${YTD}/2026</b>. Celý rok 2026 = skutočnosť 1–${YTD} + forecast ${YTD+1}–12, odhad tržby <b>${eur(a26.rev)}</b>.`}</span></div>
     <div class="row" style="margin-bottom:12px">
       ${ctl({t:'seg',label:'Obdobie',val:S.ovYear,
-        opts:[['2026','2026 (YTD 1–'+YTD+')'],['2025','2025 (celý rok)'],['both','Oba roky']],
+        opts:[['2026','2026 (YTD 1–'+YTD+')'],['2026fy','2026 (celý rok)'],['2025','2025 (celý rok)'],['both','Oba roky']],
         on:set(v=>S.ovYear=v)})}
       <div style="margin-left:auto">
       ${ctl({t:'seg',label:'Veľkosť porovnávacieho riadku',val:String(S.subSize),
@@ -1404,6 +1427,16 @@ function renderOverview(p,D){
     T.push(tile('Variabilné náklady', eur(a25.vcAdj), `${pc1(a25.rev?a25.vcAdj/a25.rev*100:NaN)} z tržby`, null,null,'2025'));
     T.push(tile('Fixné náklady', eur(fix25), `${e4(a25.vol?fix25/a25.vol:NaN)}/zás.`, null,null,'2025'));
     T.push(tile('Výsledok po fixných', eur(net25), `${pc1(a25.rev?net25/a25.rev*100:NaN)} z tržby`, null, net25<0?'crit':null,'2025'));
+    tilesEl.className='grid tiles'; tilesEl.innerHTML=T.join('');
+  } else if(S.ovYear==='2026fy'){
+    T.push(tile('Tržba', eur(a26.rev), `2025: ${eur(a25.rev)}`, dlt(a26.rev,a25.rev),null,'2026'));
+    T.push(tile('Objem', num(a26.vol), `2025: ${num(a25.vol)}`, dlt(a26.vol,a25.vol),null,'2026'));
+    T.push(tile('Cena / zásielku', e4(a26.uP), `2025: ${e4(a25.uP)}`, dlt(a26.uP,a25.uP),null,'2026'));
+    T.push(tile('Hrubá marža', eur(a26.marAdj), `${pc1(a26.mpc)} z tržby`, dlt(a26.marAdj,a25.marAdj),null,'2026'));
+    T.push(tile('Plnenie plánu', pc1(pl26FY.rev? a26.rev/pl26FY.rev*100:NaN), `plán ${eur(pl26FY.rev)}`, null,null,'2026'));
+    T.push(tile('Variabilné náklady', eur(a26.vcAdj), `${pc1(a26.rev?a26.vcAdj/a26.rev*100:NaN)} z tržby`, dlt(a26.vcAdj,a25.vcAdj,true),null,'2026'));
+    T.push(tile('Fixné náklady', eur(fix26), `${e4(a26.vol?fix26/a26.vol:NaN)}/zás.`, dlt(fix26,fix25,true),null,'2026'));
+    T.push(tile('Výsledok po fixných', eur(net26), `${pc1(a26.rev?net26/a26.rev*100:NaN)} z tržby`, dlt(net26,net25), net26<0?'crit':null,'2026'));
     tilesEl.className='grid tiles'; tilesEl.innerHTML=T.join('');
   } else if(S.ovYear==='both'){
     // rovnaký tvar dlaždice ako pri jednom roku: 2026 veľké, 2025 a zmena pod tým
