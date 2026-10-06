@@ -161,6 +161,14 @@ table.blocks tbody tr.sub td:first-child{padding-left:26px;color:var(--ink-2)}
 .fcg .fcg-hd{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
 .fcg .fcg-hd h3{margin:0;font-size:13.5px;text-transform:none;letter-spacing:0;color:var(--ink)}
 .fcg .fcg-hd .sp{flex:1}
+.fcg .fcg-tg{display:inline-flex;align-items:center;gap:8px;border:0;background:none;padding:2px 4px 2px 0;
+  cursor:pointer;color:var(--ink);font:inherit}
+.fcg .fcg-tg:hover h3{color:var(--s1)}
+.fcg .fcg-tg .chev{display:inline-block;font-size:11px;color:var(--muted);transition:transform .15s;transform:rotate(90deg)}
+.fcg.closed .fcg-tg .chev{transform:none}
+.fcg.closed{padding-bottom:10px}
+.fcg.closed .fcg-hd{margin-bottom:0}
+.fcg .fcg-sum .delta{margin-left:4px}
 .fcg table td,.fcg table th{padding:4px 8px}
 .fcg input.fcin{width:104px;text-align:right;font-variant-numeric:tabular-nums;padding:4px 7px}
 .fcg input.fcin.auto{color:var(--muted);font-style:italic;background:transparent;border-style:dashed}
@@ -643,7 +651,8 @@ const DEFAULTS = () => ({
   // forecast 2026
   fcMethod: 'season',        // season | avg3 | plan | manual
   fcManual: {},
-  fcFallback: 'season',      // dopočet prázdnych polí pri manuálnom forecaste              // key -> [12] objemy (len mesiace > YTD)
+  fcFallback: 'season',
+  fcGridOpen: true,          // mriežka ručného forecastu rozbalená      // dopočet prázdnych polí pri manuálnom forecaste              // key -> [12] objemy (len mesiace > YTD)
   // 2027
   degression: 17.5,          // %
   degOverride: {},           // key -> %
@@ -1856,17 +1865,21 @@ function fcGridHTML(rs){
       <td class="ref">${num(avg)}</td><td class="ref">${num(ref25)}</td>${cells}
       <td><b>${num(rs_)}</b></td><td>${deltaHTML(rs_,ref25)}</td></tr>`;
   });
-  return `<div class="fcg" id="fcg">
-    <div class="fcg-hd"><h3>Forecast objemov po klientoch · ${q}/2026</h3>
+  const open = S.fcGridOpen!==false;
+  return `<div class="fcg${open?'':' closed'}" id="fcg">
+    <div class="fcg-hd"><button class="fcg-tg" id="fcTg" aria-expanded="${open}" title="${open?'Zbaliť':'Rozbaliť'}">
+        <span class="chev">▸</span><h3>Forecast objemov po klientoch · ${q}/2026</h3></button>
       <span class="note">${rows.length} klientov · ručne zadaných polí: <b>${nSet}</b> z ${rows.length*ms.length}</span>
+      ${open?'':`<span class="note fcg-sum">${ms.map((m,i)=>`${MON[m]} <b>${num(T[i])}</b>`).join(' · ')} · Σ <b>${num(Tsum)}</b> ${deltaHTML(Tsum,T25)}</span>`}
       <span class="sp"></span>
-      <span class="note">Prázdne polia:</span>
+      ${open?`<span class="note">Prázdne polia:</span>
       <div class="seg" id="fcFb"><button data-v="season" aria-pressed="${S.fcFallback!=='avg3'}">Sezónnosť 2025</button>
         <button data-v="avg3" aria-pressed="${S.fcFallback==='avg3'}">Priemer 3 mes.</button></div>
       <button class="btn sm pri" id="fcImpBtn">Vložiť plán z Excelu</button>
       <button class="btn sm" id="fcFill" title="Zapíše dopočet do prázdnych polí, aby sa dali ďalej upravovať">Doplniť prázdne</button>
-      <button class="btn sm dgr" id="fcClear">Vymazať ručné hodnoty</button>
+      <button class="btn sm dgr" id="fcClear">Vymazať ručné hodnoty</button>`:''}
     </div>
+    <div class="fcg-body"${open?'':' hidden'}>
     <div id="fcImp" hidden style="margin:0 0 12px">
       <p class="note" style="margin:0 0 6px">V Exceli označ riadky klientov (názov, prípadne akronym a <b>všetkých 12 mesiacov</b>,
         alebo len ${q}) a skopíruj ich sem. Klienti sa priradia podľa názvu, zapíšu sa len mesiace ${q}.</p>
@@ -1891,6 +1904,7 @@ function fcGridHTML(rs){
       <span><i style="border:1px dashed var(--border)"></i>prázdne = ${fcFbLabel()} (sivé číslo)</span>
       <span><b>Enter</b> = o riadok nižšie · <b>Tab</b> = ďalší mesiac · zmazanie čísla = späť na sezónnosť ·
         blok čísel z Excelu sa dá <b>vložiť naraz</b> (Ctrl+V do prvej bunky)</span>
+    </div>
     </div>
   </div>`;
 }
@@ -1932,6 +1946,8 @@ function fcGridWire(rs){
       setTimeout(()=>{ rerender(); fcToast(`Vložených ${n} hodnôt`+(bad?`, ${bad} nečíselných preskočených`:'')+'.'); },0);
     });
   });
+  const tg=document.getElementById('fcTg');
+  if(tg) tg.onclick=()=>{ S.fcGridOpen = S.fcGridOpen===false; const y=window.scrollY; render(); window.scrollTo(0,y); };
   box.querySelectorAll('#fcFb button').forEach(b=>b.onclick=()=>{ S.fcFallback=b.dataset.v; rerender(); });
   const ib=document.getElementById('fcImpBtn'), ip=document.getElementById('fcImp');
   if(ib) ib.onclick=()=>{ ip.hidden=!ip.hidden; if(!ip.hidden) document.getElementById('fcImpTxt').focus(); };
