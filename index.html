@@ -642,7 +642,8 @@ const DEFAULTS = () => ({
   ovYear: '2026',            // 2026 | 2025 | both — ktorý rok ukazujú dlaždice v Prehľade
   // forecast 2026
   fcMethod: 'season',        // season | avg3 | plan | manual
-  fcManual: {},              // key -> [12] objemy (len mesiace > YTD)
+  fcManual: {},
+  fcFallback: 'season',      // dopočet prázdnych polí pri manuálnom forecaste              // key -> [12] objemy (len mesiace > YTD)
   // 2027
   degression: 17.5,          // %
   degOverride: {},           // key -> %
@@ -795,7 +796,7 @@ function forecast(c){
       case 'avg3':   v = last3; break;
       case 'plan':   v = a26.plan_vol[m]||0; break;
       case 'manual': v = (S.fcManual[c.key]&&S.fcManual[c.key][m]!=null) ? +S.fcManual[c.key][m]
-                         : (a25.vol[m]||0)*ratio; break;
+                         : (S.fcFallback==='avg3' ? last3 : (a25.vol[m]||0)*ratio); break;
       default:       v = (a25.vol[m]||0)*ratio;
     }
     v = Math.max(0, v||0);
@@ -1731,7 +1732,7 @@ function fcNote(){
     ['Sezónnosť 2025','Objem mesiaca = objem toho istého mesiaca 2025 × medziročný index z uzavretých mesiacov 1–'+YTD+'. Rešpektuje sezónne výkyvy (kampane, ročné výpisy) a je preto predvolená metóda.'],
     ['Priemer 3 mes.','Objem každého zvyšného mesiaca = priemer posledných troch uzavretých mesiacov ('+MON[Math.max(0,YTD-3)]+'–'+MON[YTD-1]+'). Sezónnosť ignoruje — vhodné pri rovnomernej produkcii alebo keď je rok 2025 skreslený.'],
     ['Plán BP','Objem sa preberá priamo z plánu v Business Pláne pre daný mesiac. Ukazuje, ako by rok dopadol pri presnom splnení plánu — nie odhad reality.'],
-    ['Manuálne','Objemy mesiacov '+(YTD+1)+'–12 zadávaš sám po klientoch v tabuľke nižšie — pri súhrne vidíš všetkých klientov skupiny alebo sekcie naraz. Prázdne pole = sezónnosť 2025. Použi, keď poznáš konkrétne objemy — ukončený projekt, dohodnutá kampaň, odhad od klienta.']
+    ['Manuálne','Objemy mesiacov '+(YTD+1)+'–12 zadávaš po klientoch v tabuľke nižšie alebo ich vložíš z Excelu podľa názvov klientov. Prázdne polia sa dopočítajú sezónnosťou 2025 alebo priemerom posledných 3 mesiacov (voľba v tabuľke). Použi, keď poznáš konkrétne objemy — aktualizovaný plán, ukončený projekt, dohodnutá kampaň.']
   ];
   return `<details class="acc"><summary>Ako sa počíta forecast mesiacov ${YTD+1}–12/2026</summary><div>
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">
@@ -1747,7 +1748,83 @@ function fcNote(){
 /* ---------- ručný forecast po klientoch (mesiace YTD+1..12) ---------- */
 const fcToast = t => (typeof toast==='function' ? toast(t) : null);
 function fcMonths(){ const o=[]; for(let m=YTD;m<12;m++) o.push(m); return o; }
-function fcSeason(r,m){ return Math.max(0,(r.c.y['2025'].vol[m]||0)*(r.m26.ratio||1)); }
+function fcFallbackVal(r,m){
+  if(S.fcFallback==='avg3'){ const v=r.c.y['2026'].vol, n=Math.min(3,YTD);
+    return n? Math.max(0,(sum(v,YTD)-sum(v,Math.max(0,YTD-3)))/n) : 0; }
+  return Math.max(0,(r.c.y['2025'].vol[m]||0)*(r.m26.ratio||1));
+}
+const fcFbLabel = () => S.fcFallback==='avg3' ? 'priemer 3 mes.' : 'sezónnosť 2025';
+/* ---------- vloženie plánu z Excelu podľa názvov klientov ---------- */
+let FC_IMPORT_REPORT='';
+const fcNorm = t => String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase()
+                     .replace(/[^a-z0-9]+/g,' ').trim();
+// výnimky: riadok plánu = viac klientov kokpitu. "main" dostane plán mínus "keep",
+// "keep" si ponechajú svoj forecast (dopočet prázdnych polí) — zapíše sa explicitne.
+const FC_ALIASES = [
+  { names:['cez'],                                  main:'cez',      keep:['cez_kod'] },
+  { names:['cmss','csob stavebni sporitelna'],      main:'csobss_m', keep:['csobss_r'] },
+  { names:['csas','ceska sporitelna'],              main:'csas' },
+  { names:['ccs fleetcor','ccs','fleetcor'],        main:'fleetcor' },
+  { names:['nn management services','nn'],          main:'nn' },
+  { names:['szdc','sprava zeleznic'],               main:'szdc' },
+  { names:['digi','telly'],                         main:'telly' }
+];
+const FC_STOP = new Set(['cz','sk','as','a','s','spol','sro','pojistovna','pojistovny','energy','financial',
+  'management','services','group','obalky','the']);
+function fcMatch(cells, all){
+  const texts = cells.filter(c=>fcParse(c)===null || Number.isNaN(fcParse(c))).map(fcNorm).filter(Boolean);
+  for(const t of texts){ const a=FC_ALIASES.find(a=>a.names.includes(t));
+    if(a && all.some(r=>r.key===a.main)) return {main:a.main, keep:(a.keep||[]).filter(k=>all.some(r=>r.key===k))}; }
+  for(const t of texts){ const h=all.filter(r=>fcNorm(r.label)===t); if(h.length===1) return {main:h[0].key, keep:[]}; }
+  for(const t of texts){
+    const tok=t.split(' ').filter(w=>w.length>1 && !FC_STOP.has(w));
+    for(const w of tok){ const h=all.filter(r=>fcNorm(r.label).split(' ')[0]===w); if(h.length===1) return {main:h[0].key, keep:[]}; }
+  }
+  return null;
+}
+function fcImportText(txt){
+  const all=derive().rows, byKey={}; all.forEach(r=>byKey[r.key]=r);
+  const ms=fcMonths(), out=[], miss=[];
+  const lines=String(txt||'').replace(/\r/g,'').split('\n').filter(l=>l.trim());
+  for(const ln of lines){
+    const cells=(ln.includes('\t')?ln.split('\t'):ln.split(';')).map(c=>c.trim());
+    const nums=cells.map(fcParse).filter(v=>v!==null && !Number.isNaN(v));
+    if(!nums.length) continue;                                   // hlavička / prázdny riadok
+    if(nums.length>=12 && nums.slice(0,12).every((v,i)=>v===i+1)) continue;   // riadok 1..12
+    if(nums.every(v=>v>=2020&&v<=2030)) continue;                // riadok rokov
+    let vals;                                                    // mesiac -> hodnota
+    if(nums.length>=12) vals=Object.fromEntries(ms.map(m=>[m,nums[m]]));
+    else if(nums.length===ms.length) vals=Object.fromEntries(ms.map((m,i)=>[m,nums[i]]));
+    else { miss.push(cells.find(c=>fcNorm(c))+' — nerozpoznaný počet čísel ('+nums.length+')'); continue; }
+    const hit=fcMatch(cells, all);
+    const name=cells.find(c=>fcNorm(c) && (fcParse(c)===null||Number.isNaN(fcParse(c))))||'?';
+    if(!hit){ miss.push(name); continue; }
+    const parts=[];
+    for(const m of ms){
+      const tot=vals[m]; if(tot==null) continue;
+      let keepSum=0;
+      for(const k of hit.keep){ const kv=Math.round(fcFallbackVal(byKey[k],m)); fcSetVal(k,m,kv); keepSum+=kv; }
+      fcSetVal(hit.main,m,Math.max(0,Math.round(tot-keepSum)));
+    }
+    out.push({name, main:byKey[hit.main].label, keep:hit.keep.map(k=>byKey[k].label),
+      vals:ms.map(m=>vals[m]), split:hit.keep.length?ms.map(m=>[S.fcManual[hit.main][m], hit.keep.map(k=>S.fcManual[k][m])]):null});
+  }
+  const used=new Set(); out.forEach(o=>{ used.add(o.main); o.keep.forEach(k=>used.add(k)); });
+  const rest=all.filter(r=>!used.has(r.label)).map(r=>r.label);
+  FC_IMPORT_REPORT=`<div class="callout" style="margin:10px 0 0"><b>Vložené: ${out.length} riadkov plánu.</b>
+    ${miss.length?` <span style="color:var(--crit)">Nepriradené: ${miss.map(esc).join(', ')}.</span>`:''}
+    <table style="margin-top:8px;width:auto;font-size:12px"><thead><tr><th class="l">Riadok plánu</th><th class="l">→ klient v kokpite</th>
+      ${ms.map(m=>`<th>${MON[m]}</th>`).join('')}</tr></thead><tbody>
+    ${out.map(o=>`<tr><td class="l">${esc(o.name)}</td><td class="l">${esc(o.main)}${o.keep.length?` <span class="note">+ ${o.keep.map(esc).join(', ')}</span>`:''}</td>
+      ${o.vals.map((v,i)=>`<td>${num(v)}${o.split?`<br><span class="note">${num(o.split[i][0])} + ${o.split[i][1].map(num).join(' + ')}</span>`:''}</td>`).join('')}</tr>`).join('')}
+    </tbody></table>
+    <p class="note" style="margin:6px 0 0">Riadok, ktorý zodpovedá viacerým klientom kokpitu (napr. ČEZ = ČEZ + ČEZ [D+0]),
+      sa rozdelí tak, že vedľajší klient dostane svoj forecast (${S.fcFallback==='avg3'?'priemer 3 mesiacov':'sezónnosť 2025'})
+      a hlavný klient zvyšok do súčtu plánu. Klienti, ktorí v pláne nie sú (${rest.length}), ostávajú na dopočte.</p>
+    <button class="btn sm" id="fcRepClose" style="margin-top:6px">Zavrieť prehľad</button></div>`;
+  return {n:out.length, miss};
+}
+
 function fcIsSet(key,m){ return !!(S.fcManual[key] && S.fcManual[key][m]!=null); }
 function fcParse(t){
   t=String(t==null?'':t).trim(); if(t==='') return null;
@@ -1772,7 +1849,7 @@ function fcGridHTML(rs){
       const set=fcIsSet(r.key,m), v=r.m26.vol[m]||0; rs_+=v; T[mi]+=v; if(set) nSet++;
       return `<td><input class="fcin ${set?'set':'auto'}" inputmode="numeric" data-k="${esc(r.key)}"
         data-m="${m}" data-r="${ri}" data-c="${mi}" value="${set?nf0.format(v):''}"
-        placeholder="${nf0.format(Math.round(v))}" title="${set?'zadané ručne':'sezónnosť 2025 — prepíš číslom'}"></td>`;
+        placeholder="${nf0.format(Math.round(v))}" title="${set?'zadané ručne':fcFbLabel()+' — prepíš číslom'}"></td>`;
     }).join('');
     T25+=ref25; Tsum+=rs_;
     body+=`<tr><td class="l stickyc">${esc(r.label)}</td><td class="l ref">${esc(segName(r.group,r.site))}</td>
@@ -1783,9 +1860,23 @@ function fcGridHTML(rs){
     <div class="fcg-hd"><h3>Forecast objemov po klientoch · ${q}/2026</h3>
       <span class="note">${rows.length} klientov · ručne zadaných polí: <b>${nSet}</b> z ${rows.length*ms.length}</span>
       <span class="sp"></span>
-      <button class="btn sm" id="fcFill" title="Prepíše prázdne polia hodnotou podľa sezónnosti 2025, aby sa dali ďalej upravovať">Doplniť prázdne podľa sezónnosti</button>
+      <span class="note">Prázdne polia:</span>
+      <div class="seg" id="fcFb"><button data-v="season" aria-pressed="${S.fcFallback!=='avg3'}">Sezónnosť 2025</button>
+        <button data-v="avg3" aria-pressed="${S.fcFallback==='avg3'}">Priemer 3 mes.</button></div>
+      <button class="btn sm pri" id="fcImpBtn">Vložiť plán z Excelu</button>
+      <button class="btn sm" id="fcFill" title="Zapíše dopočet do prázdnych polí, aby sa dali ďalej upravovať">Doplniť prázdne</button>
       <button class="btn sm dgr" id="fcClear">Vymazať ručné hodnoty</button>
     </div>
+    <div id="fcImp" hidden style="margin:0 0 12px">
+      <p class="note" style="margin:0 0 6px">V Exceli označ riadky klientov (názov, prípadne akronym a <b>všetkých 12 mesiacov</b>,
+        alebo len ${q}) a skopíruj ich sem. Klienti sa priradia podľa názvu, zapíšu sa len mesiace ${q}.</p>
+      <textarea id="fcImpTxt" rows="6" style="width:100%;font:12px/1.4 ui-monospace,Consolas,monospace;padding:8px;
+        border:1px solid var(--border);border-radius:6px;background:var(--surface-1);color:var(--ink)"
+        placeholder="Allianz pojišťovna	AZP	OBÁLKY	79 316	44 172	…"></textarea>
+      <div style="display:flex;gap:8px;margin-top:6px"><button class="btn sm pri" id="fcImpGo">Priradiť a vložiť</button>
+        <button class="btn sm" id="fcImpCancel">Zrušiť</button></div>
+    </div>
+    ${FC_IMPORT_REPORT}
     <div class="tscroll"><table><thead><tr>
       <th class="l stickyc">Klient</th><th class="l">Segment</th>
       <th>Ø mesiac<br>1–${YTD}/2026</th><th>${q}<br>2025</th>
@@ -1797,7 +1888,7 @@ function fcGridHTML(rs){
     </tbody></table></div>
     <div class="legend2">
       <span><i style="border:1px solid var(--s1);background:color-mix(in srgb,var(--s1) 6%,transparent)"></i>zadané ručne</span>
-      <span><i style="border:1px dashed var(--border)"></i>prázdne = sezónnosť 2025 (sivé číslo)</span>
+      <span><i style="border:1px dashed var(--border)"></i>prázdne = ${fcFbLabel()} (sivé číslo)</span>
       <span><b>Enter</b> = o riadok nižšie · <b>Tab</b> = ďalší mesiac · zmazanie čísla = späť na sezónnosť ·
         blok čísel z Excelu sa dá <b>vložiť naraz</b> (Ctrl+V do prvej bunky)</span>
     </div>
@@ -1841,10 +1932,18 @@ function fcGridWire(rs){
       setTimeout(()=>{ rerender(); fcToast(`Vložených ${n} hodnôt`+(bad?`, ${bad} nečíselných preskočených`:'')+'.'); },0);
     });
   });
+  box.querySelectorAll('#fcFb button').forEach(b=>b.onclick=()=>{ S.fcFallback=b.dataset.v; rerender(); });
+  const ib=document.getElementById('fcImpBtn'), ip=document.getElementById('fcImp');
+  if(ib) ib.onclick=()=>{ ip.hidden=!ip.hidden; if(!ip.hidden) document.getElementById('fcImpTxt').focus(); };
+  const ic=document.getElementById('fcImpCancel'); if(ic) ic.onclick=()=>{ ip.hidden=true; };
+  const ig=document.getElementById('fcImpGo');
+  if(ig) ig.onclick=()=>{ const r=fcImportText(document.getElementById('fcImpTxt').value);
+    rerender(); fcToast(`Vložených ${r.n} riadkov plánu`+(r.miss.length?`, nepriradených ${r.miss.length}`:'')+'.'); };
+  const rc=document.getElementById('fcRepClose'); if(rc) rc.onclick=()=>{ FC_IMPORT_REPORT=''; rerender(); };
   const fill=document.getElementById('fcFill');
   if(fill) fill.onclick=()=>{
-    let n=0; rs.forEach(r=>fcMonths().forEach(m=>{ if(!fcIsSet(r.key,m)){ fcSetVal(r.key,m,Math.round(fcSeason(r,m))); n++; } }));
-    rerender(); fcToast(`Doplnených ${n} polí podľa sezónnosti 2025.`);
+    let n=0; rs.forEach(r=>fcMonths().forEach(m=>{ if(!fcIsSet(r.key,m)){ fcSetVal(r.key,m,Math.round(fcFallbackVal(r,m))); n++; } }));
+    rerender(); fcToast(`Doplnených ${n} polí (${fcFbLabel()}).`);
   };
   const clr=document.getElementById('fcClear');
   if(clr) clr.onclick=()=>{
