@@ -263,7 +263,7 @@ table.cmpt tr.csel .cpick{color:var(--s1);border-bottom-color:var(--s1)}
 .cmpchips button[aria-pressed="true"] i{background:var(--cc)}
 @media (prefers-reduced-motion:reduce){.cexp .chev{transition:none}}
 .cmpmulti{display:grid;gap:14px 22px;grid-template-columns:1fr}
-@media(min-width:1100px){.cmpmulti.two{grid-template-columns:1fr 1fr}}
+@media(min-width:1280px){.cmpmulti.two{grid-template-columns:1fr 1fr}}
 .cmppanel{min-width:0}
 .cmpph{display:flex;align-items:baseline;gap:8px;font-size:13px;margin:4px 0 2px}
 .cmpph i{width:11px;height:11px;border-radius:3px;display:inline-block;align-self:center}
@@ -1297,11 +1297,13 @@ function legend(items){
 const CMP_YEARS=['2024','2025','2026','2027'];
 const CMP_MN=['jan','feb','mar','apr','máj','jún','júl','aug','sep','okt','nov','dec'];
 const CMP_MET={
-  vol:  {t:'Objem',          u:'tis. obálok', c:'--s1', f:v=>nf0.format(v/1000), ax:v=>nf0.format(v/1000)},
-  rev:  {t:'Tržba',          u:'tis. €',      c:'--s2', f:v=>nf1.format(v/1000), ax:v=>nf0.format(v/1000)},
-  price:{t:'Priem. cena',    u:'€ / obálka',  c:'--s3', f:v=>nf3.format(v),      ax:v=>nf3.format(v)},
-  mar:  {t:'Marža',          u:'tis. €',      c:'--s4', f:v=>nf1.format(v/1000), ax:v=>nf0.format(v/1000), m:1},
-  mpc:  {t:'Maržovosť',      u:'%',           c:'--s5', f:v=>nf1.format(v*100)+' %', ax:v=>nf0.format(v*100)+' %', m:1}};
+  vol:  {t:'Objem',          u:'obálky',      c:'--s1', f:v=>nf0.format(v), ax:v=>nf0.format(v)},
+  rev:  {t:'Tržba',          u:'€',           c:'--s2', f:v=>nf0.format(v), ax:v=>nf0.format(v)},
+  price:{t:'Priem. cena',    u:'€ / obálka',  c:'--s3', f:v=>nf3.format(v), ax:v=>nf3.format(v), r:1},
+  mar:  {t:'Marža',          u:'€',           c:'--s4', f:v=>nf0.format(v), ax:v=>nf0.format(v), m:1},
+  mpc:  {t:'Maržovosť',      u:'%',           c:'--s5', f:v=>nf1.format(v*100)+' %', ax:v=>nf0.format(v*100)+' %', m:1, r:1}};
+/** kratší zápis, keď sa celé číslo nad stĺpec nezmestí */
+const cmpShort=(M,v)=>M.r?M.f(v):(Math.abs(v)>=1e6?nf2.format(v/1e6)+' mil.':Math.abs(v)>=1e4?nf0.format(v/1000)+' tis.':nf0.format(v));
 const CMP_TIER={std:'Štandardný cenník', lo:'Chytrá pošta – nižší cenník', hi:'Kodaňská – vyšší cenník'};
 const CMP_TIER_CHIP={lo:'nižší cenník', hi:'vyšší cenník'};
 /* riadky exportu Biznis plánu 2027 → klienti kokpitu (názvy sú normalizované bez diakritiky) */
@@ -1446,7 +1448,7 @@ function renderCmp(p,D){
   const metI=(t,i)=>!t?null:(i===3?(t[0]?t[1]/t[0]:null):t[i]);
   const mv=(t,k)=>!t?null:k==='vol'?t[0]:k==='rev'?t[1]:k==='mar'?t[2]:k==='mpc'?(t[1]?t[2]/t[1]:null):(t[0]?t[1]/t[0]:null);
   const NA='<span class="note">–</span>';
-  const k1=v=>v==null?NA:nf1.format(v/1000), k0=v=>v==null?NA:nf0.format(v/1000);
+  const k1=v=>v==null?NA:nf0.format(v), k0=v=>v==null?NA:nf0.format(v);
   const L27=!B.has27?'plán BP 2027 chýba':(S.cmp.p27mode==='rel'?'plán: zmena podľa BP 2027':'plán BP 2027');
   const SUB={act:{'2024':'skutočnosť','2025':'skutočnosť','2026':`skut. 1–${YTD} + forecast ${YTD+1}–12`,'2027':L27},
     plan:{'2024':'plán chýba','2025':'plán BP 2025','2026':'plán BP 2026','2027':L27},
@@ -1493,7 +1495,7 @@ function renderCmp(p,D){
   const sc=s=>s===C.sel?' csel':'';
   const mlab=['Objem','Tržba','Marža','Priem. cena'][C.metric];
   const subH=C.view==='ful'?['Objem','Tržba','Priem. cena','Marža','Maržovosť (rozdiel)']:['Objem','Tržba','Priem. cena','Marža','Maržovosť'];
-  let th=`<tr class="yr"><th class="l stickyc"></th>${CMP_YEARS.map(y=>`<th colspan="5" class="ys">${y}<small class="${/chýba/.test(SUB[C.view][y])?'miss':''}">${esc(SUB[C.view][y])}</small></th>`).join('')}`
+  let th=`<tr class="yr"><th class="l stickyc"></th>${CMP_YEARS.map(y=>`<th colspan="${cli?3:5}" class="ys">${y}<small class="${/chýba/.test(SUB[C.view][y])?'miss':''}">${esc(SUB[C.view][y])}</small></th>`).join('')}`
     +`<th class="chg">Zmena<small>${esc(mlab)}, ${y1} / ${y0}</small></th></tr>`
     +`<tr><th class="l stickyc">Klient</th>${CMP_YEARS.map(()=>subH.map((s,i)=>`<th class="${[i===0?'ys':'',i>=3?'cm':''].join(' ').trim()}">${s}</th>`).join('')).join('')}<th class="chg"></th></tr>`;
   let tb=`<tr class="tot${sc('@all')}">${nameCell(labelOf('@all'),'@all')}${CMP_YEARS.map(y=>cells(CL,y)).join('')}${change(CL)}</tr>`;
@@ -1572,7 +1574,7 @@ function renderCmp(p,D){
 
   <div class="card">
     <div class="tscroll ${cli?'cmp-cli':''}" id="cmpTb"><table class="cmpt"><thead>${th}</thead><tbody>${tb}</tbody></table></div>
-    <p class="note" style="margin:8px 0 0">Objem v tis. obálok, tržba a marža v tis. €, priemerná cena v € za obálku. Šípka rozbalí klientov, názov riadku zobrazí jeho vývoj v grafe.
+    <p class="note" style="margin:8px 0 0">Objem v obálkach, tržba a marža v €, priemerná cena v € za obálku. Šípka rozbalí klientov, názov riadku zobrazí jeho vývoj v grafe.
       <span class="chip al">≈ 2027</span> BP 2027 plánuje riadok len súhrnne (Kodaňská, AZ Prima), na klientov je rozdelený podľa podielu na roku 2026.
       Kodaňská a AZ Prima majú v BP 2024–2026 rozpad na klientov dopočítaný kľúčom.</p>
   </div>
@@ -1611,8 +1613,8 @@ function cmpChart(el, rows, C, h){
   const yrs=C.gran==='y';
   ttl.textContent=(yrs?'Skutočnosť a plán po rokoch':'Vývoj po mesiacoch')+': '+ks.map(k=>CMP_MET[k].t).join(', ');
   leg.innerHTML=yrs
-    ? `<span><i style="background:var(--ink-2)"></i>Skutočnosť (2026 vrátane forecastu ${h.ytd+1}–12)</span>`
-      +`<span><i style="background:transparent;border:1.5px dashed var(--ink-2)"></i>Plán BP</span>`
+    ? `<span><i style="background:transparent;border:1.5px dashed var(--ink-2)"></i>Plán BP (vľavo)</span>`
+      +`<span><i style="background:var(--ink-2)"></i>Skutočnosť (vpravo; 2026 vrátane forecastu ${h.ytd+1}–12)</span>`
       +`<span class="note">pod rokom: <b class="pos">medziročná zmena</b> skutočnosti (2027: plán proti 2026) · plnenie plánu</span>`
     : `<span><i style="background:var(--ink-2);opacity:.45"></i>Mesiac</span><span><i style="background:var(--ink-2)"></i>Priemer posledných 12 mesiacov</span>`
       +`<span><i style="background:transparent;border:1.5px dashed var(--ink-2)"></i>Plán BP po mesiacoch</span><span class="note">pod rokom: medziročná zmena za celý rok</span>`;
@@ -1631,34 +1633,44 @@ function cmpChart(el, rows, C, h){
   el.querySelectorAll('.cmppanel').forEach(pn=>{
     const k=pn.dataset.k, M=CMP_MET[k], c=col(k), box=pn.querySelector('.cmpsvg');
     const D=yd(k);
-    const W=Math.max(320,Math.round(box.clientWidth||900)), H=yrs?(ks.length>1?250:290):(ks.length>1?230:270);
-    const L=54, R=12, T=22, Bm=44, iw=W-L-R, ih=H-T-Bm, bw=iw/4;
+    const W=Math.max(320,Math.round(box.clientWidth||900)), H=yrs?(ks.length>1?270:300):(ks.length>1?250:280);
+    const L=74, R=12, T=22, Bm=58, iw=W-L-R, ih=H-T-Bm, bw=iw/4;
     let g='';
     // medziročné zmeny (2027 = plán proti skutočnosti 2026)
     const yoy=D.map((d,i)=>{ if(!i) return null; const cur=i===3?d.p:d.a, prev=D[i-1].a; return cur&&prev?cur/prev-1:null; });
     const ful=D.map(d=>d.a&&d.p?d.a/d.p:null);
     const yearLab=(i,cx)=>{
-      g+=`<text x="${cx}" y="${H-26}" text-anchor="middle" style="font-size:12.5px;font-weight:650;fill:var(--ink)">${Y[i]}${i===3?' plán':''}</text>`;
-      const parts=[];
-      if(yoy[i]!=null) parts.push(`<tspan style="font-weight:650;fill:var(${yoy[i]>=0?'--up':'--crit'})">${sgn(yoy[i])}</tspan>`);
-      if(ful[i]!=null) parts.push(`<tspan style="fill:var(--muted)"> · plnenie ${nf0.format(ful[i]*100)} %</tspan>`);
-      if(parts.length) g+=`<text x="${cx}" y="${H-9}" text-anchor="middle" style="font-size:12px">${parts.join('')}</text>`;
+      g+=`<text x="${cx}" y="${H-40}" text-anchor="middle" style="font-size:12.5px;font-weight:650;fill:var(--ink)">${Y[i]}${i===3?' plán':''}</text>`;
+      if(yoy[i]!=null) g+=`<text x="${cx}" y="${H-23}" text-anchor="middle" style="font-size:12.5px;font-weight:700;fill:var(${yoy[i]>=0?'--up':'--crit'})">${sgn(yoy[i])}</text>`;
+      if(ful[i]!=null) g+=`<text x="${cx}" y="${H-7}" text-anchor="middle" style="font-size:11.5px;fill:var(--muted)">plnenie ${nf0.format(ful[i]*100)} %</text>`;
     };
     if(yrs){
-      const hi=Math.max(...D.flatMap(d=>[d.a,d.p]).filter(v=>v!=null),0)*1.12;
+      const hi=Math.max(...D.flatMap(d=>[d.a,d.p]).filter(v=>v!=null),0)*1.16;
       const tk=ticks(hi,4), y1=tk[tk.length-1], y=v=>T+ih-v/y1*ih;
       tk.forEach(t=>g+=`<line class="gl" x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}"/><text class="axl" x="${L-7}" y="${y(t)+3.5}" text-anchor="end">${M.ax(t)}</text>`);
-      const one=Math.min(46,bw*0.3), gap=4;
+      const one=Math.min(60,bw*0.34), gap=6;
+      // celé čísla, ak sa nad dvojicu stĺpcov zmestia; inak skrátený zápis (mil./tis.)
+      // celé čísla; ak by sa popisy dvojice prekrývali, vyšší sa posunie nahor
+      const maxW=Math.max(...D.flatMap(d=>[d.a,d.p]).filter(v=>v!=null).map(v=>M.f(v).length))*6.9;
+      const fits=maxW<=bw*0.9;     // inak by popisy zasahovali do susedného roka
+      const lab=v=>fits?M.f(v):cmpShort(M,v);
+      let pend=[];
       const bar=(x,v,plan)=>{ const top=y(v), base=y(0), r=Math.min(3,Math.max(0,base-top));
         g+=`<path d="M${x},${base}V${top+r}Q${x},${top} ${x+r},${top}H${x+one-r}Q${x+one},${top} ${x+one},${top+r}V${base}Z" `
           +(plan?`fill="${c}" fill-opacity=".16" stroke="${c}" stroke-width="1.5" stroke-dasharray="4 3"`:`fill="${c}"`)+`/>`;
-        g+=`<text x="${x+one/2}" y="${top-6}" text-anchor="middle" style="font-size:11.5px;font-weight:${plan?500:650};fill:var(${plan?'--ink-2':'--ink'})">${M.f(v)}</text>`; };
+        pend.push({x:x+one/2, y:top-6, t:lab(v), plan}); };
+      const flush=()=>{
+        if(pend.length===2){ const [a,b]=pend, w=Math.max(a.t.length,b.t.length)*6.9;
+          if(w>one+gap && Math.abs(a.y-b.y)<14){ const hiL=a.y<b.y?a:b, loL=hiL===a?b:a; hiL.y=loL.y-14; } }
+        pend.forEach(l=>g+=`<text x="${l.x}" y="${l.y}" text-anchor="middle" style="font-size:11.5px;font-weight:${l.plan?500:650};fill:var(${l.plan?'--ink-2':'--ink'})">${l.t}</text>`);
+        pend=[]; };
       D.forEach((d,i)=>{
         const cx=L+bw*i+bw/2, both=d.a!=null&&d.p!=null;
-        if(both){ bar(cx-one-gap/2,d.a,false); bar(cx+gap/2,d.p,true); }
+        if(both){ bar(cx-one-gap/2,d.p,true); bar(cx+gap/2,d.a,false); }
         else if(d.a!=null) bar(cx-one/2,d.a,false);
         else if(d.p!=null) bar(cx-one/2,d.p,true);
         else if(i===3) g+=`<text class="axl" x="${cx}" y="${T+ih*.7}" text-anchor="middle">čaká na BP 2027</text>`;
+        flush();
         yearLab(i,cx);
         g+=`<rect class="hit" data-i="${i}" x="${cx-bw/2}" y="${T}" width="${bw}" height="${ih}" fill="transparent"/>`;
       });
