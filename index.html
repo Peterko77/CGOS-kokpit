@@ -224,6 +224,44 @@ td input{width:86px;padding:2px 5px}
 .callout b{font-weight:650}
 ul.tight{margin:6px 0 0;padding-left:19px}
 ul.tight li{margin:3px 0;font-size:12.5px}
+/* ---------- plán vs. skutočnosť ---------- */
+table.cmpt{width:max-content;min-width:100%}
+table.cmpt th{text-transform:none;letter-spacing:0}
+table.cmpt tr.yr th{text-align:center;font-size:14px;font-weight:700;color:var(--ink);border-bottom:0;padding-top:10px}
+table.cmpt tr.yr th small{display:block;font-weight:400;font-size:11.5px;color:var(--muted)}
+table.cmpt tr.yr th small.miss{color:var(--serious)}
+table.cmpt .ys{border-left:1px solid var(--axis)}
+table.cmpt td.stickyc,table.cmpt th.stickyc{min-width:250px;border-right:1px solid var(--grid)}
+table.cmpt .chg{position:sticky;right:0;z-index:1;background:var(--surface-1);border-left:2px solid var(--s1);min-width:150px}
+table.cmpt th.chg{z-index:3;background:var(--surface-2);text-align:center}
+table.cmpt tr.grp .chg,table.cmpt tr.tot .chg{background:var(--surface-2)}
+table.cmpt td.pe{font-weight:700;color:var(--ink);background:color-mix(in srgb,var(--s4) 10%,transparent)}
+table.cmpt tr.csel td.stickyc{box-shadow:inset 3px 0 0 var(--s1)}
+table.cmpt tr.csel .cpick{color:var(--s1);border-bottom-color:var(--s1)}
+.cmp-cli .cm{display:none}
+.crow{display:flex;align-items:center;gap:6px}
+.cexp{border:0;background:none;padding:0;width:16px;flex:none;cursor:pointer;color:var(--muted);font-size:10px}
+.cexp .chev{display:inline-block;transition:transform .15s}
+.cexp[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.cpick{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left;border-bottom:1px dotted var(--axis)}
+.cpick:hover{color:var(--s1)}
+.cpick:focus-visible,.cexp:focus-visible,.cmpchips button:focus-visible{outline:2px solid var(--s1);outline-offset:2px}
+.chip.tlo{color:var(--s3);border-color:color-mix(in srgb,var(--s3) 45%,transparent)}
+.chip.thi{color:var(--s5);border-color:color-mix(in srgb,var(--s5) 45%,transparent)}
+.cbar2{display:grid;grid-template-columns:1fr 1fr 58px;align-items:center;gap:0 6px}
+.cbar2 i{grid-row:1;height:9px;display:block}
+.cbar2 i.n{grid-column:1;justify-self:end;background:var(--crit);border-radius:2px 0 0 2px}
+.cbar2 i.p{grid-column:2;justify-self:start;background:var(--up);border-radius:0 2px 2px 0}
+.cbar2 .mid{grid-column:1/3;grid-row:1;justify-self:center;width:1px;height:14px;background:var(--axis)}
+.cbar2 em{font-style:normal;font-weight:600;text-align:right}
+.cmpchips{display:flex;flex-wrap:wrap;gap:6px}
+.cmpchips button{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border);background:var(--surface-2);
+  color:var(--ink-2);border-radius:99px;padding:4px 11px 4px 8px;font:inherit;font-size:12.5px;cursor:pointer}
+.cmpchips button i{width:11px;height:11px;border-radius:3px;border:2px solid var(--cc);background:transparent}
+.cmpchips button[aria-pressed="true"]{color:var(--ink);font-weight:600;border-color:var(--cc);
+  background:color-mix(in srgb,var(--cc) 12%,var(--surface-2))}
+.cmpchips button[aria-pressed="true"] i{background:var(--cc)}
+@media (prefers-reduced-motion:reduce){.cexp .chev{transition:none}}
 /* ---------- charts ---------- */
 .chart{position:relative}
 svg{display:block;width:100%;height:auto;overflow:visible}
@@ -653,6 +691,9 @@ const DEFAULTS = () => ({
   fcManual: {},
   fcFallback: 'season',
   fcGridOpen: true,          // mriežka ručného forecastu rozbalená      // dopočet prázdnych polí pri manuálnom forecaste              // key -> [12] objemy (len mesiace > YTD)
+  // porovnanie plán vs. skutočnosť 2024–2027
+  cmp: {view:'act', mode:'int', grp:'site', metric:1, pair:'2027|2026', sel:'@all', ck:['vol','rev'], gran:'y', open:[], p27mode:'abs'},
+  plan27: null,              // export Biznis plánu 2027 (riadky klientov + mesačný profil)
   // 2027
   degression: 17.5,          // %
   degOverride: {},           // key -> %
@@ -1244,9 +1285,461 @@ function legend(items){
 /* =======================================================================
    TABS
    ======================================================================= */
+/* =======================================================================
+   PLÁN VS. SKUTOČNOSŤ 2024–2027 (porovnanie pre vyjednávanie s CGOS)
+   ======================================================================= */
+const CMP_YEARS=['2024','2025','2026','2027'];
+const CMP_MN=['jan','feb','mar','apr','máj','jún','júl','aug','sep','okt','nov','dec'];
+const CMP_MET={
+  vol:  {t:'Objem',          u:'tis. obálok', c:'--s1', f:v=>nf0.format(v/1000), ax:v=>nf0.format(v/1000)},
+  rev:  {t:'Tržba',          u:'tis. €',      c:'--s2', f:v=>nf1.format(v/1000), ax:v=>nf0.format(v/1000)},
+  price:{t:'Priem. cena',    u:'€ / obálka',  c:'--s3', f:v=>nf3.format(v),      ax:v=>nf3.format(v)},
+  mar:  {t:'Marža',          u:'tis. €',      c:'--s4', f:v=>nf1.format(v/1000), ax:v=>nf0.format(v/1000), m:1},
+  mpc:  {t:'Maržovosť',      u:'%',           c:'--s5', f:v=>nf1.format(v*100)+' %', ax:v=>nf0.format(v*100)+' %', m:1}};
+const CMP_TIER={std:'Štandardný cenník', lo:'Chytrá pošta – nižší cenník', hi:'Kodaňská – vyšší cenník'};
+const CMP_TIER_CHIP={lo:'nižší cenník', hi:'vyšší cenník'};
+/* riadky exportu Biznis plánu 2027 → klienti kokpitu (názvy sú normalizované bez diakritiky) */
+const BP27_MAP={'csas':['csas'],'o2 cz':['o2cz'],'generali cp cz':['generali'],'cez':['cez'],
+  'allianz cz':['allianz'],'uniqa cz':['uniqa'],'centropol':['centropol'],'home credit':['homecredit'],
+  'commerzbank':['commerzbank'],'csob ss rocne':['csobss_r'],'telly':['telly'],
+  'zelena posta cz':['zpkos'],'cgos kodanska':'@kod','az prima':'@az'};
+const cmpNorm=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+const cmpTier=c=>c.site==='Kodaňská'?'hi':(/^chytra/.test(c.key)?'lo':'std');
+const cmpZ=()=>[Z12(),Z12(),Z12()];
+const cmpSum=a=>a.reduce((s,v)=>s+(+v||0),0);
+
+/** Prečíta export „Business Plan 2027“ (hárok Business Plan 2027 + Rady po mesiacoch). */
+function parseBP27(wb){
+  const ws=wb.Sheets['Business Plan 2027'];
+  if(!ws) return {ok:false,msg:'V zošite chýba hárok „Business Plan 2027“. Je to export z aplikácie Biznis plán 2027?'};
+  const A=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
+  const h=A.findIndex(r=>r&&cmpNorm(r[0])==='klient'&&/objem/i.test(String(r[1]||'')));
+  if(h<0) return {ok:false,msg:'Nenašiel sa riadok hlavičky (Klient / Objem / Tržba).'};
+  const top=A[h-1]||[];
+  if(top[1]&&!/2027/.test(String(top[1]))) return {ok:false,msg:'Prvý blok stĺpcov nie je „Plán 2027“.'};
+  const rows=[];
+  for(let i=h+1;i<A.length;i++){
+    const r=A[i]; if(!r||r[0]==null||String(r[0]).trim()==='') continue;
+    const lab=String(r[0]).trim();
+    if(/^spolu\b/i.test(lab)||/\(\d+\)\s*$/.test(lab)) continue;           // súčtové riadky
+    rows.push({label:lab, vol:+r[1]||0, rev:+r[2]||0, mar:+r[4]||0, vol26:+r[6]||0, rev26:+r[7]||0, mar26:+r[9]||0});
+  }
+  let prof=null;
+  const wm=wb.Sheets['Rady po mesiacoch'];
+  if(wm){
+    const M=XLSX.utils.sheet_to_json(wm,{header:1,raw:true,defval:null});
+    const pick=t=>{const r=M.find(x=>x&&/^spolu/i.test(String(x[0]||''))&&String(x[1]||'').trim()===t);
+      return r?r.slice(2,14).map(v=>+v||0):null;};
+    const r27=pick('Tržba 2027'), m27=pick('Marža 2027');
+    if(r27&&m27) prof={rev:r27,mar:m27};
+  }
+  if(!rows.length) return {ok:false,msg:'Export neobsahuje žiadne riadky klientov.'};
+  return {ok:true,rows,prof};
+}
+function importBP27(file){
+  if(!file) return;
+  const fr=new FileReader();
+  fr.onload=ev=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      const res=parseBP27(wb);
+      if(!res.ok){ CMP_MSG=`<div class="callout c">${esc(res.msg)}</div>`; render(); return; }
+      S.plan27={file:file.name, at:new Date().toISOString(), rows:res.rows, prof:res.prof};
+      CMP_MSG=`<div class="callout"><b>Plán 2027 načítaný.</b> ${res.rows.length} riadkov, tržba spolu
+        ${eur(cmpSum(res.rows.map(r=>r.rev)))}.${(typeof WEB!=='undefined'&&WEB&&WEB.isEditor)?' Aby ho videli ostatní, zverejni stav tlačidlom Publikovať.':''}</div>`;
+      render();
+    }catch(err){ CMP_MSG=`<div class="callout c">Chyba pri čítaní: ${esc(err.message)}</div>`; render(); }
+  };
+  fr.readAsArrayBuffer(file);
+}
+let CMP_MSG='';
+
+/** Klienti s mesačnými radmi [objem, tržba, marža] za 2024–2027. */
+function cmpBuild(D){
+  const base=D.rows.map(r=>{
+    const y5=r.c.y['2025'], y6=r.c.y['2026'];
+    return {k:r.key,l:r.label,g:r.group,s:r.site||'',
+      a24:[y5.prev_vol,y5.prev_rev,y5.prev_mar].map(a=>(a||Z12()).slice()),
+      a25:[y5.vol,y5.rev,y5.mar].map(a=>a.slice()),
+      a26:[r.m26.vol,r.m26.rev,r.m26.mar].map(a=>a.slice()),
+      p25:[y5.plan_vol,y5.plan_rev,y5.plan_mar].map(a=>(a||Z12()).slice()),
+      p26:[y6.plan_vol,y6.plan_rev,y6.plan_mar].map(a=>(a||Z12()).slice()),
+      p27:null, alloc27:false};
+  });
+  const P=S.plan27||DATA.plan27||null;
+  const info={src:P, map:[], nomatch:[], noplan:[], recon:[]};
+  const rel=(S.cmp.p27mode==='rel');
+  if(P&&P.rows){
+    const byKey={}; base.forEach(c=>byKey[c.k]=c);
+    const pool=t=>{
+      if(t==='@kod') return base.filter(c=>c.g==='CGOS'&&c.s==='Kodaňská');
+      if(t==='@az')  return base.filter(c=>c.g==='AZ Prima'&&c.k!=='zpkos');
+      return t.map(k=>byKey[k]).filter(Boolean);
+    };
+    const prof=P.prof||null;
+    for(const row of P.rows){
+      const n=cmpNorm(row.label);
+      let t=BP27_MAP[n];
+      if(!t){ const hit=base.find(c=>cmpNorm(c.l)===n); if(hit) t=[hit.k]; }
+      const T=[row.vol,row.rev,row.mar];
+      const cs=t?pool(t):[];
+      if(!cs.length){
+        // nový klient v pláne 2027 – mesačný profil podľa súčtu BP
+        const c={k:'n27_'+n.replace(/ /g,'_'),l:row.label,g:'CGOS',s:'',isNew:true,
+          a24:cmpZ(),a25:cmpZ(),a26:cmpZ(),p25:cmpZ(),p26:cmpZ(),p27:cmpZ(),alloc27:false};
+        for(let i=0;i<3;i++){
+          const pr=prof?(i===2?prof.mar:prof.rev):null, ps=pr?cmpSum(pr):0;
+          for(let m=0;m<12;m++) c.p27[i][m]=T[i]*(ps?pr[m]/ps:1/12);
+        }
+        base.push(c); info.nomatch.push(row.label); continue;
+      }
+      info.map.push({label:row.label, to:cs.map(c=>c.l)});
+      // rozdelenie: podiel klienta na roku 2026 (zvlášť objem, tržba, marža), mesiace podľa jeho profilu 2026
+      const tot=[0,1,2].map(i=>cmpSum(cs.map(c=>cmpSum(c.a26[i]))));
+      const B26=[row.vol26,row.rev26,row.mar26];
+      if(B26[0]||B26[1]) info.recon.push({label:row.label, bp:B26, kk:tot});
+      // režim „zmena“: percentuálna zmena BP 2027 proti 2026 v BP, aplikovaná na rok 2026 kokpitu
+      if(rel) for(let i=0;i<3;i++) if(B26[i]>0) T[i]=tot[i]*T[i]/B26[i];
+      cs.forEach(c=>{
+        c.p27=cmpZ(); c.alloc27=cs.length>1;
+        for(let i=0;i<3;i++){
+          const own=cmpSum(c.a26[i]);
+          const sh=tot[i]? own/tot[i] : (tot[0]?cmpSum(c.a26[0])/tot[0]:1/cs.length);
+          const yr=T[i]*sh;
+          for(let m=0;m<12;m++) c.p27[i][m]=own? yr*(c.a26[i][m]/own) : yr/12;
+        }
+      });
+    }
+    base.forEach(c=>{ if(!c.p27&&!c.isNew&&cmpSum(c.a26[1])>0) info.noplan.push(c.l); });
+  }
+  base.forEach(c=>{ c.key=c.k; c.site=c.s; c.tier=cmpTier(c); });
+  return {cl:base, info, has27:!!(P&&P.rows)};
+}
+
+function renderCmp(p,D){
+  const C=S.cmp, cli=C.mode==='cli';
+  if(cli){ C.ck=C.ck.filter(k=>!CMP_MET[k].m); if(!C.ck.length) C.ck=['rev']; if(C.metric===2) C.metric=1; }
+  const B=cmpBuild(D);
+  const inScope=c=>S.scope==='all'||c.g===(S.scope==='az'?'AZ Prima':'CGOS');
+  const CL=B.cl.filter(inScope).filter(c=>[c.a24,c.a25,c.a26,c.p27].some(x=>x&&cmpSum(x[1])));
+  const GR = C.grp==='price'
+    ? [{id:'t_std',label:CMP_TIER.std,f:c=>c.tier==='std'},
+       {id:'t_lo',label:CMP_TIER.lo,f:c=>c.tier==='lo',tier:'lo'},
+       {id:'t_hi',label:CMP_TIER.hi,f:c=>c.tier==='hi',tier:'hi'}]
+    : [{id:'praha',label:'CGOS',f:c=>c.g==='CGOS'&&!c.s},
+       {id:'kod',label:'CGOS Kodaňská',f:c=>c.g==='CGOS'&&c.s==='Kodaňská',tier:'hi'},
+       {id:'azcz',label:'AZ Prima CZ',f:c=>c.g==='AZ Prima'&&c.s==='CZ'},
+       {id:'azsk',label:'AZ Prima SK',f:c=>c.g==='AZ Prima'&&c.s==='SK'}];
+  const ACT={'2024':'a24','2025':'a25','2026':'a26','2027':'p27'};   // 2027 = plán (skutočnosť ešte nie je)
+  const PLN={'2024':null,'2025':'p25','2026':'p26','2027':'p27'};
+  const mon=(rows,key)=>{ if(!key) return null; const o=cmpZ(); let any=false;
+    rows.forEach(r=>{ const a=r[key]; if(!a) return; any=true; for(let i=0;i<3;i++) for(let m=0;m<12;m++) o[i][m]+=a[i][m]||0; });
+    return any?o:null; };
+  const tot=mo=>mo?mo.map(cmpSum):null;
+  const val=(rows,y,kind)=>tot(mon(rows,(kind==='plan'?PLN:ACT)[y]));
+  const metI=(t,i)=>!t?null:(i===3?(t[0]?t[1]/t[0]:null):t[i]);
+  const mv=(t,k)=>!t?null:k==='vol'?t[0]:k==='rev'?t[1]:k==='mar'?t[2]:k==='mpc'?(t[1]?t[2]/t[1]:null):(t[0]?t[1]/t[0]:null);
+  const NA='<span class="note">–</span>';
+  const k1=v=>v==null?NA:nf1.format(v/1000), k0=v=>v==null?NA:nf0.format(v/1000);
+  const L27=!B.has27?'plán BP 2027 chýba':(S.cmp.p27mode==='rel'?'plán: zmena podľa BP 2027':'plán BP 2027');
+  const SUB={act:{'2024':'skutočnosť','2025':'skutočnosť','2026':`skut. 1–${YTD} + forecast ${YTD+1}–12`,'2027':L27},
+    plan:{'2024':'plán chýba','2025':'plán BP 2025','2026':'plán BP 2026','2027':L27},
+    ful:{'2024':'plán chýba','2025':'skutočnosť / plán','2026':'skut. + forecast / plán','2027':'–'}};
+  if(YTD>=12) SUB.act['2026']='skutočnosť';
+
+  /* --- výber riadku pre graf --- */
+  const rowsOf=sel=>sel==='@all'?CL:sel.startsWith('@g:')?CL.filter((GR.find(g=>g.id===sel.slice(3))||{f:()=>false}).f):CL.filter(c=>c.k===sel);
+  if(C.sel!=='@all'&&!rowsOf(C.sel).length) C.sel='@all';
+  const labelOf=sel=>sel==='@all'?'Spolu '+({cgos:'CGOS',az:'AZ Prima',all:'CGOS + AZ Prima'}[S.scope])
+    :sel.startsWith('@g:')?GR.find(g=>g.id===sel.slice(3)).label:(CL.find(c=>c.k===sel)||{}).l;
+
+  /* --- tabuľka --- */
+  const cells=(rows,y,emph)=>{
+    const M=' class="cm"';
+    if(C.view==='ful'){
+      const a=y==='2027'?null:val(rows,y,'act'), pl=val(rows,y,'plan');
+      const r=i=>{ if(!a||!pl) return NA; const x=metI(a,i), q=metI(pl,i); if(!q) return NA; const v=x/q;
+        return `<span class="${v>=1?'pos':'neg'}">${nf1.format(v*100)} %</span>`; };
+      const dm=a&&pl&&a[1]&&pl[1]?nf1.format((a[2]/a[1]-pl[2]/pl[1])*100)+' p. b.':NA;
+      return `<td class="ys">${r(0)}</td><td>${r(1)}</td><td>${r(3)}</td><td${M}>${r(2)}</td><td${M}>${dm}</td>`;
+    }
+    const t=val(rows,y,C.view);
+    if(!t||!(t[0]||t[1])) return `<td class="ys">${NA}</td><td>${NA}</td><td>${NA}</td><td${M}>${NA}</td><td${M}>${NA}</td>`;
+    return `<td class="ys">${k0(t[0])}</td><td>${k1(t[1])}</td><td${emph?' class="pe"':''}>${t[0]?nf3.format(t[1]/t[0]):NA}</td>`
+      +`<td${M}>${k1(t[2])}</td><td${M}>${t[1]?nf1.format(t[2]/t[1]*100)+' %':NA}</td>`;
+  };
+  const [y1,y0]=C.pair.split('|');
+  const change=rows=>{
+    const kind=C.view==='plan'?'plan':'act';
+    const a=metI(val(rows,y1,kind),C.metric), b=metI(val(rows,y0,kind),C.metric);
+    if(a==null||b==null||!b) return `<td class="chg">${a&&!b?'<span class="pos">nový</span>':NA}</td>`;
+    const q=a/b-1, w=Math.min(Math.abs(q),0.5)/0.5*100;
+    return `<td class="chg"><div class="cbar2"><span class="mid"></span><i class="n" style="width:${q<0?w:0}%"></i><i class="p" style="width:${q>0?w:0}%"></i>`
+      +`<em class="${q>=0?'pos':'neg'}">${q>0?'+':''}${nf1.format(q*100)} %</em></div></td>`;
+  };
+  const nameCell=(label,sel,expId,o={})=>{
+    const ex=expId?`<button class="cexp" data-exp="${expId}" aria-expanded="${C.open.includes(expId)}" aria-label="Rozbaliť ${esc(label)}"><span class="chev">▸</span></button>`:'<span class="cexp"></span>';
+    return `<td class="l stickyc"><span class="crow">${ex}<button class="cpick" data-sel="${esc(sel)}">${esc(label)}</button>`
+      +`${o.alloc?'<span class="chip al" title="BP 2027 plánuje tento riadok len súhrnne; na klientov je rozdelený podľa podielu na roku 2026">≈ 2027</span>':''}`
+      +`${o.isNew?'<span class="chip">nový 2027</span>':''}`
+      +`${o.tier&&CMP_TIER_CHIP[o.tier]?`<span class="chip t${o.tier}">${CMP_TIER_CHIP[o.tier]}</span>`:''}</span></td>`;
+  };
+  const sc=s=>s===C.sel?' csel':'';
+  const mlab=['Objem','Tržba','Marža','Priem. cena'][C.metric];
+  const subH=C.view==='ful'?['Objem','Tržba','Priem. cena','Marža','Maržovosť (rozdiel)']:['Objem','Tržba','Priem. cena','Marža','Maržovosť'];
+  let th=`<tr class="yr"><th class="l stickyc"></th>${CMP_YEARS.map(y=>`<th colspan="5" class="ys">${y}<small class="${/chýba/.test(SUB[C.view][y])?'miss':''}">${esc(SUB[C.view][y])}</small></th>`).join('')}`
+    +`<th class="chg">Zmena<small>${esc(mlab)}, ${y1} / ${y0}</small></th></tr>`
+    +`<tr><th class="l stickyc">Klient</th>${CMP_YEARS.map(()=>subH.map((s,i)=>`<th class="${[i===0?'ys':'',i>=3?'cm':''].join(' ').trim()}">${s}</th>`).join('')).join('')}<th class="chg"></th></tr>`;
+  let tb=`<tr class="tot${sc('@all')}">${nameCell(labelOf('@all'),'@all')}${CMP_YEARS.map(y=>cells(CL,y)).join('')}${change(CL)}</tr>`;
+  for(const g of GR){
+    const rows=CL.filter(g.f); if(!rows.length) continue;
+    tb+=`<tr class="grp${sc('@g:'+g.id)}">${nameCell(g.label,'@g:'+g.id,g.id,{tier:C.grp==='site'?g.tier:null})}${CMP_YEARS.map(y=>cells(rows,y,!!g.tier)).join('')}${change(rows)}</tr>`;
+    if(C.open.includes(g.id)) rows.slice().sort((a,b)=>cmpSum(b.a26[1])-cmpSum(a.a26[1])||cmpSum(b.p27?b.p27[1]:[])-cmpSum(a.p27?a.p27[1]:[])).forEach(c=>{
+      tb+=`<tr class="sub${sc(c.k)}">${nameCell(c.l,c.k,null,{alloc:c.alloc27,isNew:c.isNew,tier:C.grp==='site'&&c.tier!=='std'?c.tier:null})}${CMP_YEARS.map(y=>cells([c],y,c.tier!=='std')).join('')}${change([c])}</tr>`;
+    });
+  }
+
+  /* --- cenníková poznámka k vybranému riadku --- */
+  const selRows=rowsOf(C.sel);
+  const selTier=[...new Set(selRows.map(c=>c.tier))];
+  let priceNote='';
+  if(selTier.length===1&&selTier[0]!=='std'){
+    const std=CL.filter(c=>c.tier==='std');
+    const pS=mv(val(selRows,'2026','act'),'price'), pT=mv(val(std,'2026','act'),'price');
+    const pS7=mv(val(selRows,'2027','act'),'price'), pT7=mv(val(std,'2027','act'),'price');
+    if(pS&&pT) priceNote=`<div class="callout" style="margin-top:0"><b>${esc(CMP_TIER[selTier[0]])}.</b>
+      Priemerná cena 2026: <b>${nf3.format(pS)} €</b> za obálku, štandardný cenník ${nf3.format(pT)} €
+      (${pS/pT-1>0?'+':''}${nf1.format((pS/pT-1)*100)} %).${pS7&&pT7?` Plán 2027: ${nf3.format(pS7)} € proti ${nf3.format(pT7)} € (${pS7/pT7-1>0?'+':''}${nf1.format((pS7/pT7-1)*100)} %).`:''}
+      Pri tejto skupine sleduj hlavne priemernú cenu.</div>`;
+  } else if(selTier.length>1){
+    priceNote=`<p class="note" style="margin:0">Riadok mieša klientov s rôznymi cenníkmi (štandardný, nižší Chytrá pošta, vyšší Kodaňská), priemerná cena preto závisí aj od skladby objemu. Cenníky porovnáš v zoskupení Cenníky.</p>`;
+  }
+
+  /* --- súhrn importu --- */
+  const P=B.info.src;
+  const rc=B.info.recon.map(r=>({...r, d:r.kk[1]?r.bp[1]/r.kk[1]-1:null, dv:r.kk[0]?r.bp[0]/r.kk[0]-1:null}));
+  const bad=rc.filter(r=>r.d!=null&&Math.abs(r.d)>0.03);
+  const pct1=v=>v==null?'–':(v>0?'+':'')+nf1.format(v*100)+' %';
+  const reconHTML = rc.length ? `<details class="acc" ${bad.length?'open':''}><summary>Kontrola základu: rok 2026 v BP 2027 proti kokpitu${bad.length?` · ${bad.length} riadkov sa líši o viac ako 3 %`:''}</summary><div>
+      <p class="note" style="margin:0 0 8px">Export BP 2027 obsahuje aj vlastný rok 2026. Ak sa líši od kokpitu, porovnanie 2027 s 2026 v režime „Čísla BP 2027“ ukáže aj tento rozdiel, nielen plánovanú zmenu.</p>
+      <div class="tscroll"><table><thead><tr><th class="l">Riadok BP 2027</th><th>Objem 2026 BP</th><th>Objem 2026 kokpit</th><th>Rozdiel</th><th>Tržba 2026 BP</th><th>Tržba 2026 kokpit</th><th>Rozdiel</th></tr></thead><tbody>
+      ${rc.map(r=>`<tr><td class="l">${esc(r.label)}</td><td>${num(r.bp[0])}</td><td>${num(r.kk[0])}</td><td>${pct1(r.dv)}</td><td>${eur(r.bp[1])}</td><td>${eur(r.kk[1])}</td>
+        <td class="${r.d!=null&&Math.abs(r.d)>0.03?'neg':''}" style="font-weight:${r.d!=null&&Math.abs(r.d)>0.03?650:400}">${pct1(r.d)}</td></tr>`).join('')}
+      </tbody></table></div></div></details>` : '';
+  const impHTML = P
+    ? `<p class="note">Načítané: <b>${esc(P.file||'export BP 2027')}</b>${P.at?', '+esc(new Date(P.at).toLocaleString('sk-SK')):''} · ${P.rows.length} riadkov · tržba spolu <b>${eur(cmpSum(P.rows.map(r=>r.rev)))}</b>.</p>
+       <details class="acc"><summary>Priradenie riadkov BP 2027 ku klientom kokpitu</summary><div>
+         <ul class="tight">${B.info.map.map(m=>`<li><b>${esc(m.label)}</b> → ${esc(m.to.join(', '))}${m.to.length>1?' <span class="note">(rozdelené podľa podielu na roku 2026)</span>':''}</li>`).join('')}
+         ${B.info.nomatch.map(l=>`<li><b>${esc(l)}</b> → nový klient (CGOS)</li>`).join('')}</ul>
+         ${B.info.noplan.length?`<p class="note">Bez plánu 2027 (v BP 2027 nie sú): ${esc(B.info.noplan.join(', '))}.</p>`:''}
+       </div></details>${reconHTML}`
+    : `<div class="callout w">Plán 2027 zatiaľ nie je načítaný. Nahraj export „Business Plan 2027“ za CGOS skupinu z aplikácie Biznis plán 2027.</div>`;
+
+  p.innerHTML=`
+  <div class="card">
+    <div class="hd"><h2>Plán a skutočnosť 2024–2027</h2>
+      <span class="note">Rok 2024 skutočnosť z BP 2025, 2025 a 2026 z BP 2025_12 a BP 2026 CRW, 2026 = skutočnosť 1–${YTD} + forecast ${YTD+1}–12 (${esc({season:'sezónnosť 2025',avg3:'priemer 3 mes.',plan:'plán BP',manual:'ručný forecast'}[S.fcMethod]||'')}), 2027 = Biznis plán 2027. Marža = hrubá marža podľa BP.</span></div>
+    <div class="row" style="margin-bottom:4px">
+      ${ctl({t:'seg',label:'Hodnoty v tabuľke',val:C.view,opts:[['act','Skutočnosť'],['plan','Plán'],['ful','Plnenie plánu']],on:set(v=>C.view=v)})}
+      ${ctl({t:'seg',label:'Zoskupiť',val:C.grp,opts:[['site','Prevádzky'],['price','Cenníky']],on:set(v=>{C.grp=v;C.open=[];if(C.sel.startsWith('@g:'))C.sel='@all';})})}
+      ${ctl({t:'select',label:'Zmena: ukazovateľ',val:C.metric,opts:[['0','Objem'],['1','Tržba'],['3','Priem. cena']].concat(cli?[]:[['2','Marža']]),on:set(v=>C.metric=+v)})}
+      ${ctl({t:'select',label:'Zmena: porovnať',val:C.pair,opts:[['2027|2026','2027 oproti 2026'],['2026|2025','2026 oproti 2025'],['2025|2024','2025 oproti 2024'],['2027|2024','2027 oproti 2024']],on:set(v=>C.pair=v)})}
+      <div style="margin-left:auto">${ctl({t:'seg',label:'Zobrazenie',val:C.mode,opts:[['int','Interné'],['cli','Pre CGOS (bez marží)']],on:set(v=>C.mode=v)})}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="hd" style="align-items:flex-end">
+      <div><h2 id="cmpT"></h2><div class="note">${esc(labelOf(C.sel))} · výber riadku kliknutím na názov v tabuľke</div></div>
+      <div class="row" style="margin-left:auto">
+        <div class="field"><label>Ukazovatele (dajú sa kombinovať)</label>
+          <div class="cmpchips" id="cmpChips">${Object.entries(CMP_MET).filter(([k,m])=>!(cli&&m.m)).map(([k,m])=>
+            `<button data-k="${k}" aria-pressed="${C.ck.includes(k)}" style="--cc:var(${m.c})"><i></i>${m.t}</button>`).join('')}</div></div>
+        ${ctl({t:'seg',label:'Časový krok',val:C.gran,opts:[['y','Roky'],['m','Mesiace']],on:set(v=>C.gran=v)})}
+      </div>
+    </div>
+    ${priceNote}
+    <div class="legend" id="cmpLeg" style="margin-top:10px"></div>
+    <div class="chart" id="cmpCh"></div>
+    <p class="note" id="cmpFoot" style="margin:6px 0 0"></p>
+  </div>
+
+  <div class="card">
+    <div class="tscroll ${cli?'cmp-cli':''}" id="cmpTb"><table class="cmpt"><thead>${th}</thead><tbody>${tb}</tbody></table></div>
+    <p class="note" style="margin:8px 0 0">Objem v tis. obálok, tržba a marža v tis. €, priemerná cena v € za obálku. Šípka rozbalí klientov, názov riadku zobrazí jeho vývoj v grafe.
+      <span class="chip al">≈ 2027</span> BP 2027 plánuje riadok len súhrnne (Kodaňská, AZ Prima), na klientov je rozdelený podľa podielu na roku 2026.
+      Kodaňská a AZ Prima majú v BP 2024–2026 rozpad na klientov dopočítaný kľúčom.</p>
+  </div>
+
+  <div class="card">
+    <div class="hd"><h2>Plán 2027 z Biznis plánu</h2>
+      <label class="btn" style="margin-left:auto">Nahrať export BP 2027 (.xlsx)<input type="file" id="fBP27" accept=".xlsx" class="hidden"></label></div>
+    ${P?`<div class="row" style="margin:4px 0 10px">${ctl({t:'seg',label:'Rok 2027 v porovnaní',val:S.cmp.p27mode||'abs',
+      opts:[['abs','Čísla BP 2027'],['rel','Zmena z BP 2027 na základ 2026 v kokpite']],on:set(v=>S.cmp.p27mode=v),
+      hint:'Druhý režim berie z BP 2027 len percentuálnu zmenu proti jeho vlastnému roku 2026 a aplikuje ju na rok 2026 v kokpite. Noví klienti zostávajú v číslach BP.'})}</div>`:''}
+    ${CMP_MSG}${impHTML}
+  </div>`;
+
+  /* --- udalosti --- */
+  document.getElementById('fBP27').onchange=e=>importBP27(e.target.files[0]);
+  document.getElementById('cmpChips').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.k, i=C.ck.indexOf(k);
+    if(i>=0){ if(C.ck.length>1) C.ck.splice(i,1); } else C.ck.push(k);
+    render();
+  });
+  p.querySelector('table.cmpt').addEventListener('click',e=>{
+    const x=e.target.closest('[data-exp]'); if(x){ const id=x.dataset.exp, i=C.open.indexOf(id); i>=0?C.open.splice(i,1):C.open.push(id); render(); return; }
+    const s=e.target.closest('[data-sel]'); if(s){ C.sel=s.dataset.sel; render();
+      const t=document.getElementById('cmpT'); if(t) t.scrollIntoView({block:'nearest'}); }
+  });
+
+  /* --- graf --- */
+  cmpChart(document.getElementById('cmpCh'), selRows, C, {val, mon, mv, ytd:YTD, has27:B.has27});
+}
+
+function cmpChart(el, rows, C, h){
+  const ks=Object.keys(CMP_MET).filter(k=>C.ck.includes(k));
+  const multi=ks.length>1, ratioK=k=>k==='price'||k==='mpc';
+  const leg=document.getElementById('cmpLeg'), foot=document.getElementById('cmpFoot'), ttl=document.getElementById('cmpT');
+  const W=Math.max(360,Math.round(el.clientWidth||980)), H=W<640?280:330;
+  const L=multi?46:58, R=multi?118:16, T=18, Bm=C.gran==='y'?46:34, iw=W-L-R, ih=H-T-Bm;
+  const col=k=>`var(${CMP_MET[k].c})`;
+  let g='';
+  const ticks=(lo,hi,n)=>{ const span=(hi-lo)||Math.abs(hi)||1, raw=span/n, p=Math.pow(10,Math.floor(Math.log10(raw)));
+    const st=[1,2,2.5,5,10].map(s=>s*p).find(s=>span/s<=n)||10*p; const out=[];
+    for(let v=Math.floor(lo/st)*st; v<=Math.ceil(hi/st)*st+st/2; v+=st) out.push(+v.toPrecision(12)); return out; };
+
+  if(C.gran==='y'){
+    const Y=CMP_YEARS;
+    const dat=ks.map(k=>({k, a:Y.map(y=>h.mv(h.val(rows,y,'act'),k)), p:Y.map(y=>y==='2024'||y==='2027'?null:h.mv(h.val(rows,y,'plan'),k))}));
+    if(!multi){
+      const d=dat[0], M=CMP_MET[d.k];
+      ttl.textContent=`${M.t} po rokoch (${M.u})`;
+      leg.innerHTML=`<span><i style="background:${col(d.k)}"></i>Skutočnosť 2024–2026 (2026 s forecastom)</span>`
+        +`<span><i style="background:${col(d.k)};opacity:.45"></i>Plán BP 2027</span><span><i style="background:var(--ink-2);height:3px;border-radius:2px"></i>Plán daného roka</span>`;
+      const vals=[...d.a,...d.p].filter(v=>v!=null&&isFinite(v));
+      const tk=ticks(ratioK(d.k)?Math.min(...vals)*0.85:0, Math.max(...vals,0)*1.1||1, 5), y0=tk[0], y1=tk[tk.length-1];
+      const y=v=>T+ih-(v-y0)/(y1-y0)*ih, bw=iw/4, barW=Math.min(84,bw*0.46);
+      tk.forEach(t=>g+=`<line class="gl" x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}"/><text class="axl" x="${L-7}" y="${y(t)+3.5}" text-anchor="end">${M.ax(t)}</text>`);
+      Y.forEach((yr,i)=>{
+        const cx=L+bw*i+bw/2, v=d.a[i], pv=d.p[i], base=y(y0);
+        g+=`<text x="${cx}" y="${H-26}" text-anchor="middle" style="font-size:12.5px;font-weight:650;fill:var(--ink)">${yr}${yr==='2027'?' plán':''}</text>`;
+        if(v!=null&&isFinite(v)){
+          const top=y(v), r=Math.min(4,Math.max(0,base-top));
+          g+=`<path d="M${cx-barW/2},${base}V${top+r}Q${cx-barW/2},${top} ${cx-barW/2+r},${top}H${cx+barW/2-r}Q${cx+barW/2},${top} ${cx+barW/2},${top+r}V${base}Z" fill="${col(d.k)}" ${yr==='2027'?'fill-opacity=".45" stroke="'+col(d.k)+'" stroke-dasharray="4 3"':''}/>`;
+          g+=`<text x="${cx}" y="${top-7}" text-anchor="middle" style="font-size:12px;font-weight:650;fill:var(--ink)">${M.f(v)}</text>`;
+          const pr=i?d.a[i-1]:null;
+          if(pr&&isFinite(pr)){ const q=v/pr-1; g+=`<text x="${cx}" y="${H-8}" text-anchor="middle" style="font-size:12px;font-weight:650;fill:var(${q>=0?'--up':'--crit'})">${q>0?'+':''}${nf1.format(q*100)} %</text>`; }
+        } else if(yr==='2027'){
+          g+=`<rect x="${cx-barW/2}" y="${T+ih*.35}" width="${barW}" height="${ih*.65}" rx="4" fill="none" stroke="var(--axis)" stroke-dasharray="4 4"/>`
+            +`<text class="axl" x="${cx}" y="${T+ih*.68}" text-anchor="middle">čaká na BP 2027</text>`;
+        }
+        if(pv!=null&&isFinite(pv)) g+=`<line x1="${cx-barW/2-8}" x2="${cx+barW/2+8}" y1="${y(pv)}" y2="${y(pv)}" stroke="var(--ink-2)" stroke-width="2.5" stroke-linecap="round"/>`;
+        g+=`<rect class="hit" data-i="${i}" x="${cx-bw/2}" y="${T}" width="${bw}" height="${ih}" fill="transparent"/>`;
+      });
+      foot.textContent=(d.a[0]&&d.a[2]?`2026 oproti 2024: ${d.a[2]/d.a[0]-1>0?'+':''}${nf1.format((d.a[2]/d.a[0]-1)*100)} %. `:'')
+        +(d.a[3]&&d.a[2]?`Plán 2027 oproti 2026: ${d.a[3]/d.a[2]-1>0?'+':''}${nf1.format((d.a[3]/d.a[2]-1)*100)} %. `:'')+'Percentá pod rokmi sú medziročné zmeny.';
+    } else {
+      ttl.textContent='Vývoj ukazovateľov po rokoch (index 2024 = 100)';
+      leg.innerHTML=ks.map(k=>`<span><i style="background:${col(k)}"></i>${CMP_MET[k].t}</span>`).join('')+`<span class="note">plná čiara skutočnosť, prerušovaná plán 2027</span>`;
+      const ix=dat.map(d=>({k:d.k, v:d.a.map(v=>v!=null&&d.a[0]?v/d.a[0]*100:null)}));
+      const vals=ix.flatMap(d=>d.v).filter(v=>v!=null&&isFinite(v));
+      const tk=ticks(Math.min(...vals,100)*0.95, Math.max(...vals,100)*1.03, 5), y0=tk[0], y1=tk[tk.length-1];
+      const y=v=>T+ih-(v-y0)/(y1-y0)*ih, x=i=>L+iw*(i+0.5)/4;
+      tk.forEach(t=>g+=`<line class="gl" x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}"/><text class="axl" x="${L-7}" y="${y(t)+3.5}" text-anchor="end">${nf0.format(t)}</text>`);
+      g+=`<line x1="${L}" x2="${W-R}" y1="${y(100)}" y2="${y(100)}" stroke="var(--axis)" stroke-dasharray="3 3"/>`;
+      Y.forEach((yr,i)=>g+=`<text x="${x(i)}" y="${H-22}" text-anchor="middle" style="font-size:12.5px;font-weight:650;fill:var(--ink)">${yr}${yr==='2027'?' plán':''}</text>`);
+      const lab=[];
+      ix.forEach(d=>{
+        let s='',s2=''; d.v.forEach((v,i)=>{ if(v==null||!isFinite(v)) return; if(i<=2) s+=(s?'L':'M')+x(i)+','+y(v); });
+        if(d.v[2]!=null&&d.v[3]!=null&&isFinite(d.v[3])) s2=`M${x(2)},${y(d.v[2])}L${x(3)},${y(d.v[3])}`;
+        g+=`<path d="${s}" fill="none" stroke="${col(d.k)}" stroke-width="2.5" stroke-linejoin="round"/>`;
+        if(s2) g+=`<path d="${s2}" fill="none" stroke="${col(d.k)}" stroke-width="2.5" stroke-dasharray="6 4"/>`;
+        d.v.forEach((v,i)=>{ if(v!=null&&isFinite(v)) g+=`<circle cx="${x(i)}" cy="${y(v)}" r="4.5" fill="${i===3?'var(--surface-1)':col(d.k)}" stroke="${i===3?col(d.k):'var(--surface-1)'}" stroke-width="2"/>`; });
+        const li=[3,2,1,0].find(i=>d.v[i]!=null&&isFinite(d.v[i])); if(li!=null) lab.push({k:d.k,yv:y(d.v[li]),v:d.v[li],x:x(li)});
+      });
+      lab.sort((a,b)=>a.yv-b.yv); for(let i=1;i<lab.length;i++) if(lab[i].yv-lab[i-1].yv<14) lab[i].yv=lab[i-1].yv+14;
+      lab.forEach(l=>g+=`<text x="${l.x+9}" y="${l.yv+4}" style="font-size:12px;fill:var(--ink)"><tspan style="font-weight:650">${nf0.format(l.v)}</tspan> ${CMP_MET[l.k].t}</text>`);
+      Y.forEach((yr,i)=>g+=`<rect class="hit" data-i="${i}" x="${L+iw*i/4}" y="${T}" width="${iw/4}" height="${ih}" fill="transparent"/>`);
+      foot.textContent='Pri viacerých ukazovateľoch je os index (2024 = 100), aby sa dali porovnať rôzne jednotky. Presné hodnoty ukáže bublina po prejdení myšou.';
+    }
+    el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(ttl.textContent)}">${g}</svg>`;
+    el.querySelectorAll('rect.hit').forEach(r=>{
+      const i=+r.dataset.i, yr=CMP_YEARS[i];
+      r.onmousemove=e=>showTip(`<b>${yr}${yr==='2027'?' (plán BP 2027)':''}</b><table>${dat.map(d=>{
+        const M=CMP_MET[d.k], a=d.a[i], pv=d.p[i];
+        return `<tr><td>${M.t}</td><td>${a!=null&&isFinite(a)?M.f(a):'–'}</td></tr>`+(pv!=null&&isFinite(pv)?`<tr><td class="note">plán</td><td class="note">${M.f(pv)}${a?' · '+nf1.format(a/pv*100)+' %':''}</td></tr>`:'');
+      }).join('')}</table>`,e);
+      r.onmouseleave=hideTip;
+    });
+    return;
+  }
+
+  /* mesačne 2024–2027: mesiac + priemer posledných 12 mesiacov; 2027 = plán BP */
+  const ser={a:[],p:[]};
+  CMP_YEARS.forEach(yr=>{ const ma=h.mon(rows,{'2024':'a24','2025':'a25','2026':'a26','2027':'p27'}[yr]), mp=h.mon(rows,{'2025':'p25','2026':'p26'}[yr]);
+    for(let m=0;m<12;m++){ ser.a.push(ma?[ma[0][m],ma[1][m],ma[2][m]]:null); ser.p.push(mp?[mp[0][m],mp[1][m],mp[2][m]]:null); } });
+  const N=48, fcFrom=24+h.ytd-1, planFrom=35;
+  const ltmOf=k=>ser.a.map((t,i)=>{ if(i<11||!t) return null; const s=[0,0,0];
+    for(let j=i-11;j<=i;j++){ if(!ser.a[j]) return null; for(let q=0;q<3;q++) s[q]+=ser.a[j][q]; }
+    if(!ratioK(k)) for(let q=0;q<3;q++) s[q]/=12; return h.mv(s,k); });
+  const S_=ks.map(k=>({k, m:ser.a.map(t=>h.mv(t,k)), p:ser.p.map(t=>h.mv(t,k)), l:ltmOf(k)}));
+  const x=i=>L+(i+0.5)*iw/N;
+  let y, tk, axf;
+  if(!multi){
+    const d=S_[0], M=CMP_MET[d.k];
+    ttl.textContent=`${M.t} po mesiacoch (${M.u})`;
+    leg.innerHTML=`<span><i style="background:${col(d.k)};opacity:.45"></i>Mesiac</span><span><i style="background:${col(d.k)}"></i>Priemer posledných 12 mesiacov</span>`
+      +`<span><i style="background:var(--ink-2)"></i>Plán po mesiacoch (prerušovaná)</span><span class="note">forecast ${h.ytd+1}–12/2026 a plán 2027 prerušovane</span>`;
+    const vals=[...d.m,...d.p,...d.l].filter(v=>v!=null&&isFinite(v));
+    tk=ticks(ratioK(d.k)?Math.min(...vals)*0.95:0, Math.max(...vals)*1.05||1, 5); axf=M.ax;
+  } else {
+    ttl.textContent='Priemer posledných 12 mesiacov (index dec 2024 = 100)';
+    leg.innerHTML=ks.map(k=>`<span><i style="background:${col(k)}"></i>${CMP_MET[k].t}</span>`).join('')+`<span class="note">forecast a plán 2027 prerušovane</span>`;
+    S_.forEach(d=>{ const b=d.l[11]; d.ix=d.l.map(v=>v!=null&&b?v/b*100:null); });
+    const vals=S_.flatMap(d=>d.ix).filter(v=>v!=null&&isFinite(v));
+    tk=ticks(Math.min(...vals,100)*0.97, Math.max(...vals,100)*1.02, 5); axf=v=>nf0.format(v);
+  }
+  const y0=tk[0], y1=tk[tk.length-1]; y=v=>T+ih-(v-y0)/(y1-y0)*ih;
+  tk.forEach(t=>g+=`<line class="gl" x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}"/><text class="axl" x="${L-7}" y="${y(t)+3.5}" text-anchor="end">${axf(t)}</text>`);
+  CMP_YEARS.forEach((yr,i)=>{ const x0=L+i*iw/4; if(i) g+=`<line x1="${x0}" x2="${x0}" y1="${T}" y2="${T+ih}" stroke="var(--axis)"/>`;
+    g+=`<text x="${x0+iw/8}" y="${H-12}" text-anchor="middle" style="font-size:12.5px;font-weight:650;fill:var(--ink)">${yr}${yr==='2027'?' plán':''}</text>`; });
+  if(!h.has27) g+=`<text class="axl" x="${L+iw*7/8}" y="${T+ih/2}" text-anchor="middle">čaká na BP 2027</text>`;
+  const path=(arr,a,b)=>{ let s='',on=false; for(let i=a;i<=b;i++){ const v=arr[i]; if(v==null||!isFinite(v)){on=false;continue;} s+=(on?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1); on=true; } return s; };
+  const line=(arr,c,w,o={})=>{ const cut=Math.min(fcFrom,planFrom);
+    g+=`<path d="${path(arr,0,cut)}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linejoin="round" ${o.op?'stroke-opacity="'+o.op+'"':''}/>`
+      +`<path d="${path(arr,cut,47)}" fill="none" stroke="${c}" stroke-width="${w}" stroke-dasharray="5 4" ${o.op?'stroke-opacity="'+o.op+'"':''}/>`; };
+  if(!multi){
+    const d=S_[0];
+    g+=`<path d="${path(d.p,0,35)}" fill="none" stroke="var(--ink-2)" stroke-width="1.5" stroke-dasharray="3 3"/>`;
+    line(d.m,col(d.k),1.5,{op:.5}); line(d.l,col(d.k),2.75);
+  } else S_.forEach(d=>line(d.ix,col(d.k),2.5));
+  const endI=[47,35].find(i=>S_.every(d=>(multi?d.ix:d.l)[i]!=null));
+  const lab=[];
+  if(endI!=null) S_.forEach(d=>{ const v=(multi?d.ix:d.l)[endI]; g+=`<circle cx="${x(endI)}" cy="${y(v)}" r="4" fill="${col(d.k)}" stroke="var(--surface-1)" stroke-width="2"/>`;
+    if(multi) lab.push({k:d.k,yv:y(v),v}); });
+  lab.sort((a,b)=>a.yv-b.yv); for(let i=1;i<lab.length;i++) if(lab[i].yv-lab[i-1].yv<14) lab[i].yv=lab[i-1].yv+14;
+  lab.forEach(l=>g+=`<text x="${x(endI)+8}" y="${l.yv+4}" style="font-size:12px;fill:var(--ink)"><tspan style="font-weight:650">${nf0.format(l.v)}</tspan> ${CMP_MET[l.k].t}</text>`);
+  g+=`<line id="cmpX" y1="${T}" y2="${T+ih}" stroke="var(--muted)" visibility="hidden"/><rect id="cmpOv" x="${L}" y="${T}" width="${iw}" height="${ih}" fill="transparent"/>`;
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(ttl.textContent)}">${g}</svg>`;
+  const svg=el.querySelector('svg'), ov=svg.querySelector('#cmpOv'), cx=svg.querySelector('#cmpX');
+  ov.onmousemove=e=>{ const r=svg.getBoundingClientRect(), sx=(e.clientX-r.left)*W/r.width, i=Math.max(0,Math.min(N-1,Math.floor((sx-L)/(iw/N))));
+    cx.setAttribute('x1',x(i)); cx.setAttribute('x2',x(i)); cx.setAttribute('visibility','visible');
+    const yr=CMP_YEARS[Math.floor(i/12)], m=i%12, tag=i>=36?' (plán BP 2027)':i>fcFrom?' (forecast)':'';
+    showTip(`<b>${CMP_MN[m]} ${yr}${tag}</b><table>${S_.map(d=>{ const M=CMP_MET[d.k];
+      return `<tr><td>${M.t}</td><td>${d.m[i]!=null&&isFinite(d.m[i])?M.f(d.m[i]):'–'}</td></tr><tr><td class="note">priemer 12 m</td><td class="note">${d.l[i]!=null&&isFinite(d.l[i])?M.f(d.l[i]):'–'}</td></tr>`
+        +(d.p[i]!=null&&isFinite(d.p[i])&&d.p[i]?`<tr><td class="note">plán</td><td class="note">${M.f(d.p[i])}</td></tr>`:''); }).join('')}</table>`,e); };
+  ov.onmouseleave=()=>{ cx.setAttribute('visibility','hidden'); hideTip(); };
+  const d0=S_[0], f=d0.l.findIndex(v=>v!=null), e2=d0.l[35];
+  foot.textContent=multi
+    ? 'Priemer posledných 12 mesiacov vyrovnáva sezónne výkyvy. Pri viacerých ukazovateľoch je os index (december 2024 = 100). Presné hodnoty ukáže bublina.'
+    : (f>=0&&e2!=null&&!ratioK(d0.k)?`Priemer posledných 12 mesiacov: dec 2024 ${CMP_MET[d0.k].f(d0.l[11])} → dec 2026 ${CMP_MET[d0.k].f(e2)} (${e2/d0.l[11]-1>0?'+':''}${nf1.format((e2/d0.l[11]-1)*100)} %)${d0.l[47]!=null?`, plán dec 2027 ${CMP_MET[d0.k].f(d0.l[47])}`:''}. `:'')+'Priemer vyrovnáva sezónne výkyvy, napríklad januárové ročné výpisy.';
+}
+
 const TABS=[
   ['ov','Prehľad', renderOverview],
   ['p27','Plán 2027', renderPlan],
+  ['cmp','Plán vs. skutočnosť', renderCmp],
   ['cl','Klienti', renderClients],
   ['mo','Mesačný detail', renderMonthly],
   ['co','Variabilné a fixné náklady', renderCosts],
