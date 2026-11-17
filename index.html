@@ -1487,7 +1487,9 @@ function importPlan24(files){
         const v=vol[c.key]; if(v===undefined) return;             // bez predikcie: v 2024 bez plánu, v 2025/2026 ostáva plán BP
         const av=act(c,'vol');
         let uR,uM,sv,sr,sm;
-        if(!R||!sum(R.vol)){ if(!av){ miss.push(c.label); return; } uR=act(c,'rev')/av; uM=act(c,'mar')/av; sv=sr=sm=Z12().map(()=>1/12); }
+        if(!R||!sum(R.vol)){ // bez riadku v BP: cena a marža zo skutočnosti (referenčný rok, inak 2025, inak 2024)
+          const alt=[[av,act(c,'rev'),act(c,'mar')],[sum(c.y['2025'].vol),sum(c.y['2025'].rev),sum(c.y['2025'].mar)],[sum(c.y['2025'].prev_vol||Z12()),sum(c.y['2025'].prev_rev||Z12()),sum(c.y['2025'].prev_mar||Z12())]].find(x=>x[0]>0);
+          if(!alt){ miss.push(c.label); return; } uR=alt[1]/alt[0]; uM=alt[2]/alt[0]; sv=sr=sm=Z12().map(()=>1/12); }
         else { const ra=rowAct[r];
           const kr=(ra&&ra.vol&&ra.rev&&av&&act(c,'rev'))?(act(c,'rev')/av)/(ra.rev/ra.vol):1;
           const km=(ra&&ra.vol&&ra.mar&&av&&act(c,'mar'))?(act(c,'mar')/av)/(ra.mar/ra.vol):1;
@@ -1495,6 +1497,16 @@ function importPlan24(files){
         if(volM[c.key]&&sum(volM[c.key])) { const m=volM[c.key]; out[c.key]={vol:m.slice(),rev:m.map(x=>x*uR),mar:m.map(x=>x*uM)}; }
         else out[c.key]={vol:sv.map(x=>v*x),rev:sr.map(x=>v*uR*x),mar:sm.map(x=>v*uM*x)};
       });
+      // AZ PRIMA (bez predikcie CGOS): riadok BP sa v rokoch 2025 a 2026 rozdelí na klientov podľa ich podielu na skutočnosti
+      // referenčného roka – zvlášť objem, tržba a marža, takže Chytrá pošta si zachová nižšiu cenu (predtým jednotná cena)
+      const RA=BPR['az prima'];
+      if(Y!=='2024'&&RA){ const azc=cls.filter(c=>c.group==='AZ Prima'&&!/^zpkos/.test(c.key)&&out[c.key]===undefined);
+        // klienti bez skutočnosti v referenčnom roku (napr. nová Chytrá pošta SK) si nechajú plán z BP, zvyšok riadku sa rozdelí
+        const fix=azc.filter(c=>!act(c,'vol')), dis=azc.filter(c=>act(c,'vol'));
+        const rest={}; ['vol','rev','mar'].forEach(f=>rest[f]=RA[f].map((x,m)=>x-fix.reduce((a,c)=>a+((c.y[Y]['plan_'+f]||Z12())[m]||0),0)));
+        const tt=f=>dis.reduce((a,c)=>a+act(c,f),0), T0={vol:tt('vol'),rev:tt('rev'),mar:tt('mar')};
+        if(T0.vol) dis.forEach(c=>{ const o={}; ['vol','rev','mar'].forEach(f=>{ const sh=T0[f]?act(c,f)/T0[f]:0; o[f]=rest[f].map(x=>x*sh); });
+          out[c.key]=o; }); }
       let upl=null;
       if(Y==='2024'){ // plán BP 2024 je pred zľavou AZPR → −8 000 €/mes. pri AZ Prima
         const az=cls.filter(c=>c.group==='AZ Prima').map(c=>c.key); upl={};
@@ -1531,19 +1543,23 @@ function cmpBuild(D){
   const base=D.rows.map(r=>{
     const y5=r.c.y['2025'], y6=r.c.y['2026'];
     return {k:r.key,l:r.label,g:r.group,s:r.site||'',
-      a24:[y5.prev_vol,cmpU(y5.prev_rev,y5.prev_upl),cmpU(y5.prev_mar,y5.prev_upl)].map(a=>(a||Z12()).slice()),
-      a25:[y5.vol,cmpU(y5.rev,y5.upl),cmpU(y5.mar,y5.upl)].map(a=>a.slice()),
+      a24:[y5.prev_vol,y5.prev_rev,y5.prev_mar].map(a=>(a||Z12()).slice()),
+      a25:[y5.vol,y5.rev,y5.mar].map(a=>a.slice()),
       // 2026: zľava sa už nefakturuje – reálne čísla bez presunu AZ Prima → CGOS, ktorý robí BP
       a26:[r.m26.vol,r.m26.rev,r.m26.mar].map(a=>a.slice()),
-      p24:y5.p24_vol?[y5.p24_vol,cmpU(y5.p24_rev,y5.p24_upl),cmpU(y5.p24_mar,y5.p24_upl)].map(a=>a.slice()):null,
+      p24:y5.p24_vol?[y5.p24_vol,y5.p24_rev,y5.p24_mar].map(a=>a.slice()):null,
       p25:[y5.plan_vol,y5.plan_rev,y5.plan_mar].map(a=>(a||Z12()).slice()),
       p26:[y6.plan_vol,y6.plan_rev,y6.plan_mar].map(a=>(a||Z12()).slice()),
       p27:null, alloc27:false};
   });
+  // paušálna zľava AZPR −8 000 €/mes. (2024, 2025): v BP sa odpočítava len z projektov AZ PRIMA, nie zo Zelenej pošty
+  // → rozdelenie na klientov AZ Prima okrem ZP podľa tržby v mesiaci (skutočnosť 2024 z BP 2024_12, skutočnosť 2025, plán 2024)
+  const azNoZP=base.filter(c=>c.g==='AZ Prima'&&!/^zpkos/.test(c.k));
+  const disc=(key,amt)=>{ for(let m=0;m<12;m++){ const t=azNoZP.reduce((a,c)=>a+(c[key]?c[key][1][m]||0:0),0); if(!t) continue;
+    azNoZP.forEach(c=>{ if(!c[key]) return; const d=amt*(c[key][1][m]||0)/t; c[key][1][m]+=d; c[key][2][m]+=d; }); } };
+  if(S.inclUplift){ if(S.y24src) disc('a24',-8000); disc('a25',-8000); disc('p24',-8000); }
   // plán BP 2026 pri AZ Prima je po paušálnej zľave AZPR, v 2026 sa však zľava nefakturuje → +8 000 €/mes. späť
-  if(S.inclUplift){ const az=base.filter(c=>c.g==='AZ Prima');
-    for(let m=0;m<12;m++){ const t=az.reduce((a,c)=>a+(c.p26[1][m]||0),0); if(!t) continue;
-      az.forEach(c=>{ const d=8000*(c.p26[1][m]||0)/t; c.p26[1][m]+=d; c.p26[2][m]+=d; }); } }
+  if(S.inclUplift) disc('p26',8000);
   const P=S.plan27||DATA.plan27||null;
   const info={src:P, map:[], nomatch:[], noplan:[], recon:[]};
   const rel=(S.cmp.p27mode==='rel');
