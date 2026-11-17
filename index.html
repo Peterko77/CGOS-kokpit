@@ -1813,10 +1813,14 @@ function renderCmp(p,D){
   const yHead=(y,span)=>{ const isT=y===C.to[0], isF=!isT&&y===C.fr[0];
     const sub=C.view==='ful'?(y==='2027'?'–':'skutočnosť / plán'):C.view==='plan'?SUB.plan[y]:SUB.act[y];
     return `<th colspan="${span}" class="ys${yc(y)}">${y}${isT?'<span class="c2tag to">porovnať</span>':isF?'<span class="c2tag fr">základ</span>':''}<small class="${/chýba/.test(sub)?'miss':''}">${esc(sub)}</small></th>`; };
+  // poradie klientov: podľa absolútnej zmeny (porovnať − základ) tržby, resp. prvého zvoleného ukazovateľa; najväčší pokles navrchu
+  const ordM=C.met.includes('rev')?'rev':C.met[0];
+  const ordK=c=>{ const d=delta([c],ordM); return d&&d.a!=null&&d.b!=null&&isFinite(d.a-d.b)?d.a-d.b:Infinity; };
+  const ordChg=(a,b)=>ordK(a)-ordK(b)||cmpSum(b.a26[1])-cmpSum(a.a26[1]);
   const tree=()=>{ const out=[{type:'tot',sel:'@all',l:labelOf('@all'),rows:CL}];
     GR.forEach(g=>{ const rs=CL.filter(g.f); if(!rs.length) return;
       out.push({type:'grp',sel:'@g:'+g.id,exp:g.id,l:g.label,rows:rs,tier:C.grp==='site'?g.tier:null,pc:!!g.tier});
-      if(C.open.includes(g.id)) rs.slice().sort((a,b)=>cmpSum(b.a26[1])-cmpSum(a.a26[1])||cmpSum(b.p27?b.p27[1]:[])-cmpSum(a.p27?a.p27[1]:[]))
+      if(C.open.includes(g.id)) rs.slice().sort((C.ord||'chg')==='chg'?ordChg:(a,b)=>cmpSum(b.a26[1])-cmpSum(a.a26[1])||cmpSum(b.p27?b.p27[1]:[])-cmpSum(a.p27?a.p27[1]:[]))
         .forEach(c=>out.push({type:'sub',sel:c.k,l:c.l,rows:[c],alloc:c.alloc27,isNew:c.isNew,tier:C.grp==='site'&&c.tier!=='std'?c.tier:null,pc:c.tier!=='std'})); });
     return out; };
   const nameCell=(r,rs)=>{
@@ -1948,6 +1952,7 @@ function renderCmp(p,D){
     <section class="card c2tpanel">
       <div class="c2tbar">
         ${ctl({t:'seg',label:'Hodnoty v tabuľke',val:C.view,opts:[['act','Skutočnosť'],['plan','Plán'],['ful','Plnenie plánu']],on:set(v=>C.view=v)})}
+        ${ctl({t:'seg',label:'Poradie klientov v skupine',val:C.ord||'chg',opts:[['chg',`Najväčší pokles (${CMP_MET[ordM].t.toLowerCase()})`],['rev','Podľa tržby 2026']],on:set(v=>C.ord=v)})}
         <div class="c2end">${ctl({t:'seg',label:'Rozloženie',val:C.lay||'auto',opts:[['auto','Automaticky'],['wide','Vedľa seba'],['long','Pod sebou']],on:set(v=>C.lay=v)})}<span class="hint" id="c2Fit"></span></div>
       </div>
       <div class="tscroll c2box" id="cmpTb"></div>
