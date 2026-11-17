@@ -263,7 +263,7 @@ table.cmpt tr.csel .cpick{color:var(--s1);border-bottom-color:var(--s1)}
 .cmpchips button[aria-pressed="true"] i{background:var(--cc)}
 @media (prefers-reduced-motion:reduce){.cexp .chev{transition:none}}
 .cmpmulti{display:grid;gap:14px 22px;grid-template-columns:1fr}
-@media(min-width:1280px){.cmpmulti.two{grid-template-columns:1fr 1fr}}
+@media(min-width:900px){.cmpmulti.two{grid-template-columns:1fr 1fr}}
 .cmppanel{min-width:0}
 .cmpph{display:flex;align-items:baseline;gap:8px;font-size:13px;margin:4px 0 2px}
 .cmpph i{width:11px;height:11px;border-radius:3px;display:inline-block;align-self:center}
@@ -321,9 +321,11 @@ svg.c2sk{display:inline-block;width:92px;height:26px;overflow:visible}
 .c2pre{display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:6px}
 .c2pre button{border:1px dashed var(--axis);background:transparent;color:var(--ink-2);border-radius:6px;padding:3px 8px;font:inherit;font-size:12px;cursor:pointer}
 .c2pre button[aria-pressed="true"]{border-style:solid;border-color:var(--s1);color:var(--s1);font-weight:600}
-.c2bench{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:14px;align-items:start}
+.c2bench{display:flex;flex-direction:column;gap:14px}
 .c2bench>.card{margin:0;min-width:0}
-.c2detail{position:sticky;top:var(--c2ct,0px);padding:12px 14px}
+.c2detail{scroll-margin-top:var(--c2ct,0px)}
+.c2tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));column-gap:28px;margin-top:6px}
+.c2dh{display:flex;gap:4px 14px;align-items:baseline;flex-wrap:wrap}
 .c2dh .who{font-size:16px;font-weight:650}
 .c2tile{display:grid;grid-template-columns:94px 1fr auto;gap:2px 10px;align-items:baseline;padding:8px 0;border-top:1px solid var(--grid)}
 .c2tile .lab{font-size:12px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
@@ -352,10 +354,6 @@ details.c2srcs>summary h2{display:inline;margin:0;font-size:15px}
 .c2plist b{min-width:36px}
 @media (max-width:1250px){
   .c2ctrl{position:static}
-  .c2bench{grid-template-columns:1fr}
-  .c2detail{position:static;max-height:none;order:-1}
-  .c2tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));column-gap:24px}
-  .c2detail .cmpmulti{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
 }
 @media (max-width:760px){ .c2ctrl{position:static} }
 .c2tbar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:flex-end;margin-bottom:10px}
@@ -1891,17 +1889,6 @@ function renderCmp(p,D){
   </section>
 
   <div class="c2bench">
-    <section class="card c2tpanel">
-      <div class="c2tbar">
-        ${ctl({t:'seg',label:'Hodnoty v tabuľke',val:C.view,opts:[['act','Skutočnosť'],['plan','Plán'],['ful','Plnenie plánu']],on:set(v=>C.view=v)})}
-        <div class="c2end">${ctl({t:'seg',label:'Rozloženie',val:C.lay||'auto',opts:[['auto','Automaticky'],['wide','Vedľa seba'],['long','Pod sebou']],on:set(v=>C.lay=v)})}<span class="hint" id="c2Fit"></span></div>
-      </div>
-      <div class="tscroll c2box" id="cmpTb"></div>
-      <p class="note" style="margin:8px 0 0">Objem v obálkach, tržba a marža v €, priemerná cena v € za obálku. Kliknutím na názov sa riadok zobrazí v paneli ${'vpravo'}, šípka rozbalí klientov. Plán 2027 je kurzívou, zmena maržovosti je v percentuálnych bodoch.
-        <span class="chip al">≈ 2027</span> BP 2027 plánuje riadok len súhrnne (Kodaňská, AZ Prima), na klientov je rozdelený podľa podielu na roku 2026.
-        Tržba a marža ${S.inclUplift?'2024 a 2025 sú po paušálnej zľave AZPR, 2026 bez nej (zľava sa už nefakturuje)':'sú bez fee AZPR (prepínač Fee AZPR v Pláne 2027)'}.
-        ${S.y24src?'':'Kodaňská a AZ Prima majú v roku 2024 rozpad na klientov dopočítaný kľúčom.'}</p>
-    </section>
     <aside class="card c2detail" id="c2Det" aria-live="polite">
       <div class="c2dh"><div class="who">${esc(labelOf(C.sel))}</div><div class="note">${tl(C.to)} oproti ${tl(C.fr)}</div></div>
       <div class="c2tiles">${tilesHTML}</div>
@@ -1913,6 +1900,17 @@ function renderCmp(p,D){
       <div class="chart" id="cmpCh"></div>
       <p class="note" id="cmpFoot" style="margin:6px 0 0"></p>
     </aside>
+    <section class="card c2tpanel">
+      <div class="c2tbar">
+        ${ctl({t:'seg',label:'Hodnoty v tabuľke',val:C.view,opts:[['act','Skutočnosť'],['plan','Plán'],['ful','Plnenie plánu']],on:set(v=>C.view=v)})}
+        <div class="c2end">${ctl({t:'seg',label:'Rozloženie',val:C.lay||'auto',opts:[['auto','Automaticky'],['wide','Vedľa seba'],['long','Pod sebou']],on:set(v=>C.lay=v)})}<span class="hint" id="c2Fit"></span></div>
+      </div>
+      <div class="tscroll c2box" id="cmpTb"></div>
+      <p class="note" style="margin:8px 0 0">Objem v obálkach, tržba a marža v €, priemerná cena v € za obálku. Kliknutím na názov sa riadok zobrazí v grafoch nad tabuľkou, šípka rozbalí klientov. Plán 2027 je kurzívou, zmena maržovosti je v percentuálnych bodoch.
+        <span class="chip al">≈ 2027</span> BP 2027 plánuje riadok len súhrnne (Kodaňská, AZ Prima), na klientov je rozdelený podľa podielu na roku 2026.
+        Tržba a marža ${S.inclUplift?'2024 a 2025 sú po paušálnej zľave AZPR, 2026 bez nej (zľava sa už nefakturuje)':'sú bez fee AZPR (prepínač Fee AZPR v Pláne 2027)'}.
+        ${S.y24src?'':'Kodaňská a AZ Prima majú v roku 2024 rozpad na klientov dopočítaný kľúčom.'}</p>
+    </section>
   </div>
 
   <details class="card c2srcs" id="c2Src" ${srcOpen?'open':''}>
@@ -1974,17 +1972,15 @@ function renderCmp(p,D){
   tbx.addEventListener('click',e=>{
     const x=e.target.closest('[data-exp]'); if(x){ const id=x.dataset.exp, i=C.open.indexOf(id); i>=0?C.open.splice(i,1):C.open.push(id); render(); return; }
     const s=e.target.closest('[data-sel]'); if(s){ C.sel=s.dataset.sel; render();
-      const d=document.getElementById('c2Det'); if(d&&getComputedStyle(d).position!=='sticky') d.scrollIntoView({block:'nearest',behavior:'smooth'}); }
+      const d=document.getElementById('c2Det'); if(d&&d.getBoundingClientRect().top<0) d.scrollIntoView({block:'start',behavior:'smooth'}); }
   });
   // lepiaci ovládací pás pod hlavičkou kokpitu, panel detailu pod ním
   const c2Sticky=()=>{ const hd=document.querySelector('header'), ct=document.getElementById('c2Ctrl'); if(!ct) return;
     const h1=hd?hd.offsetHeight:0, top=h1+ct.offsetHeight+12; p.style.setProperty('--c2hd',h1+'px');
-    // panel detailu: keď sa pod pás nezmestí celý, posúva sa so stránkou a prilepí sa až spodkom (grafy ostanú viditeľné)
-    const det=document.getElementById('c2Det'), dh=det?det.offsetHeight:0;
-    p.style.setProperty('--c2ct',Math.min(top, innerHeight-dh-10)+'px'); };
+    p.style.setProperty('--c2ct',top+'px'); };
 
   /* --- graf --- */
-  cmpChart(document.getElementById('cmpCh'), selRows, Object.assign({},C,{ck:C.met}), {val, mon, mv, ytd:YTD, has27:B.has27, compact:true});
+  cmpChart(document.getElementById('cmpCh'), selRows, Object.assign({},C,{ck:C.met}), {val, mon, mv, ytd:YTD, has27:B.has27});
   c2Sticky();
 }
 
