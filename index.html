@@ -1410,7 +1410,7 @@ function resetBP24(){
 }
 
 /** Klienti s mesačnými radmi [objem, tržba, marža] za 2024–2027. */
-/** fee AZPR podľa prepínača v kokpite: zľava 2024–2025, v 2026 presun AZ Prima → CGOS */
+/** fee AZPR podľa prepínača v kokpite: zľava −8 000 €/mes. v rokoch 2024–2025; 2026 bez zľavy */
 const cmpU=(a,u)=>(!a)?a:(S.inclUplift&&u)?a.map((v,m)=>(v||0)+(u[m]||0)):a;
 function cmpBuild(D){
   const base=D.rows.map(r=>{
@@ -1418,7 +1418,8 @@ function cmpBuild(D){
     return {k:r.key,l:r.label,g:r.group,s:r.site||'',
       a24:[y5.prev_vol,cmpU(y5.prev_rev,y5.prev_upl),cmpU(y5.prev_mar,y5.prev_upl)].map(a=>(a||Z12()).slice()),
       a25:[y5.vol,cmpU(y5.rev,y5.upl),cmpU(y5.mar,y5.upl)].map(a=>a.slice()),
-      a26:[r.m26.vol,cmpU(r.m26.rev,r.m26.upl),cmpU(r.m26.mar,r.m26.upl)].map(a=>a.slice()),
+      // 2026: zľava sa už nefakturuje – reálne čísla bez presunu AZ Prima → CGOS, ktorý robí BP
+      a26:[r.m26.vol,r.m26.rev,r.m26.mar].map(a=>a.slice()),
       p25:[y5.plan_vol,y5.plan_rev,y5.plan_mar].map(a=>(a||Z12()).slice()),
       p26:[y6.plan_vol,y6.plan_rev,y6.plan_mar].map(a=>(a||Z12()).slice()),
       p27:null, alloc27:false};
@@ -1634,7 +1635,7 @@ function renderCmp(p,D){
       <span class="note" style="margin-left:0">${S.y24src?`Načítané: <b>${esc(S.y24src.file)}</b>, ${esc(new Date(S.y24src.at).toLocaleString('sk-SK'))}`:'Teraz je rok 2024 zo stĺpca minulého roka v BP 2025 (Kodaňská a AZ Prima rozpočítané kľúčom, bez Telly).'}</span>
       <span style="margin-left:auto;display:flex;gap:8px">${S.y24src?'<button class="btn" id="bR24">Vrátiť na BP 2025</button>':''}
       <label class="btn">Nahrať BP 2024_12 (.xlsx)<input type="file" id="fBP24" accept=".xlsx" class="hidden"></label></span></div>
-    <p class="note" style="margin:0">Tržba a marža ${S.inclUplift?'sú po paušálnej zľave AZPR (−8 000 €/mes. v rokoch 2024 a 2025; v 2026 sa neuplatňuje a v BP je presunutá na klientov CGOS)':'sú bez fee AZPR (prepínač Fee AZPR v Pláne 2027)'}.</p>
+    <p class="note" style="margin:0">Tržba a marža ${S.inclUplift?'sú po paušálnej zľave AZPR (−8 000 €/mes. v rokoch 2024 a 2025). V 2026 sa zľava nefakturuje, čísla sú reálne fakturované – bez presunu −8 000 € z AZ Prima na CGOS, ktorý robí BP':'sú bez fee AZPR (prepínač Fee AZPR v Pláne 2027)'}.</p>
   </div>
 
   <div class="card">
