@@ -358,6 +358,46 @@ details.c2srcs>summary h2{display:inline;margin:0;font-size:15px}
 @media (max-width:760px){ .c2ctrl{position:static} }
 .c2tbar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:flex-end;margin-bottom:10px}
 .c2tbar .c2end{margin-left:auto;display:flex;gap:10px;align-items:flex-end}
+/* tabuľka v4: bloky klientov, zvýraznené porovnávané roky, zmena na spoločnej mierke */
+table.cmpt2{border-collapse:separate;border-spacing:0}
+table.cmpt2 td,table.cmpt2 th{border-bottom:0}
+table.cmpt2 thead tr:last-child th{border-bottom:1.5px solid var(--axis)}
+table.cmpt2 tbody td{color:var(--ink-2);padding-top:5px;padding-bottom:5px}
+table.cmpt2 tbody td.c2k{color:var(--ink);font-weight:600}
+table.cmpt2 tbody tr.c2b1 td{background:color-mix(in srgb,var(--ink) 2.5%,var(--surface-1))}
+table.cmpt2 tbody tr.c2b1 td.c2to{background:color-mix(in srgb,var(--s2) 9%,var(--surface-1))}
+table.cmpt2 tbody tr.c2b1 td.c2fr{background:color-mix(in srgb,var(--s1) 8%,var(--surface-1))}
+table.cmpt2 tr.c2first td{border-top:1px solid var(--grid)}
+table.cmpt2 tr.grp.c2first td,table.cmpt2 tr.tot.c2first td,table.cmpt2 tr.grp:not(.c2m) td,table.cmpt2 tr.tot:not(.c2m) td{border-top:1.5px solid var(--axis)}
+table.cmpt2 tr.c2last td,table.cmpt2 tr.c2m td.c2name{border-bottom:0}
+table.cmpt2 tr.c2m td{padding-top:4px;padding-bottom:4px}
+table.cmpt2 tr.c2first td{padding-top:9px} table.cmpt2 tr.c2last td{padding-bottom:9px}
+table.cmpt2 tr.tot td{font-weight:650;color:var(--ink)}
+table.cmpt2 tr.tot td.c2k{font-weight:750}
+table.cmpt2 tr.grp td.c2name,table.cmpt2 tr.tot td.c2name{font-weight:650;color:var(--ink)}
+table.cmpt2 tr.tot td.c2name .cpick{font-size:14px}
+table.cmpt2 tr.sub td.c2name{padding-left:34px;position:relative;font-weight:400;color:var(--ink)}
+table.cmpt2 tr.sub td.c2name::before{content:"";position:absolute;left:21px;top:6px;bottom:6px;width:2px;border-radius:2px;background:var(--grid)}
+table.cmpt2 td.c2ml{color:var(--muted);font-weight:400;width:1%;white-space:nowrap;padding-right:14px}
+table.cmpt2 tr.tot td.c2ml,table.cmpt2 tr.grp td.c2ml{color:var(--ink-2)}
+table.cmpt2 tbody td.ys{min-width:104px}
+table.cmpt2 td.c2chg{min-width:190px;padding-left:14px}
+.c2dl{grid-template-columns:auto minmax(80px,1fr) 70px;gap:3px 10px}
+.c2dl .db{height:12px;background:color-mix(in srgb,var(--ink) 5%,transparent);border-radius:3px}
+.c2dl .db .z{top:-3px;bottom:-3px;background:var(--ink-2);opacity:.55}
+.c2dl .db .v{top:2px;height:8px}
+.c2dl .db .v.p{background:var(--up)} .c2dl .db .v.n{background:var(--crit)}
+.c2dl .db .v.ov.p{border-radius:2px 0 0 2px;clip-path:polygon(0 0,calc(100% - 5px) 0,100% 50%,calc(100% - 5px) 100%,0 100%)}
+.c2dl .db .v.ov.n{clip-path:polygon(5px 0,100% 0,100% 100%,5px 100%,0 50%)}
+.c2dl em{font-size:13px}
+table.cmpt2 tbody tr:hover td{background:color-mix(in srgb,var(--s1) 5%,var(--surface-1))}
+table.cmpt2 td.c2ml{padding-left:10px!important}
+table.cmpt2 td.c2k .c2pl{color:var(--ink)}
+table.cmpt2 td.pe{font-weight:inherit}
+table.cmpt2 tr.c2m:not(.c2first) td{border-top:0}
+table.cmpt2 tr.grp td:not(.c2k):not(.c2name):not(.c2chg),table.cmpt2 tr.tot td:not(.c2k):not(.c2name):not(.c2chg){font-weight:500;color:var(--ink-2)}
+table.cmpt2 tr.tot td.c2k{font-weight:750}
+table.cmpt2 tr.grp td.c2k{font-weight:650}
 /* ---------- charts ---------- */
 .chart{position:relative}
 svg{display:block;width:100%;height:auto;overflow:visible}
@@ -1766,8 +1806,9 @@ function renderCmp(p,D){
     const q=a/b-1; return {d:q,a,b,lab:(q>0?'+':'')+nf1.format(q*100)+' %',w:q/0.5}; };
   const dHTML=(rows,ms)=>`<div class="c2dl">${ms.map(m=>{ const d=delta(rows,m), lab=ms.length>1?`<span class="k">${CMP_MET[m].t}</span>`:'<span></span>';
     if(!d) return `${lab}<span></span><em class="note">–</em>`;
-    const w=Math.min(Math.abs(d.w),1)*50, pos=d.d>=0;
-    return `${lab}<span class="db"><span class="z"></span><span class="v" style="${pos?'left:50%':'right:50%'};width:${w}%;background:var(${pos?'--up':'--crit'})"></span></span><em class="${pos?'pos':'neg'}">${d.lab}</em>`; }).join('')}</div>`;
+    const r=Math.abs(d.w)/(SC[m]||1), w=Math.min(r,1)*50, pos=d.d>=0, over=r>1.02;
+    return `${lab}<span class="db"><span class="z"></span><span class="v${over?' ov':''}${pos?' p':' n'}" style="${pos?'left:50%':'right:50%'};width:${w}%"></span></span><em class="${pos?'pos':'neg'}">${d.lab}</em>`; }).join('')}</div>`;
+  let SC={};
   const yc=y=>y===C.to[0]?' c2to':y===C.fr[0]?' c2fr':'';
   const yHead=(y,span)=>{ const isT=y===C.to[0], isF=!isT&&y===C.fr[0];
     const sub=C.view==='ful'?(y==='2027'?'–':'skutočnosť / plán'):C.view==='plan'?SUB.plan[y]:SUB.act[y];
@@ -1788,18 +1829,22 @@ function renderCmp(p,D){
   const tableHTML=L=>{
     const sc=x=>x===C.sel?' csel':'';
     let h='',b='';
+    const TR=tree();
+    SC={}; C.met.forEach(m=>{ const v=TR.filter(r=>r.type!=='sub').map(r=>{const d=delta(r.rows,m); return d?Math.abs(d.w):null;}).filter(x=>x!=null&&isFinite(x)).sort((a,b)=>a-b);
+      SC[m]=Math.max(v.length?v[Math.min(v.length-1,v.length-1)]:1, 0.04); });
+    const vc=y=>(y===C.to[0]||y===C.fr[0])?' c2k':'';
     if(L==='wide'){
       h=`<tr class="yr"><th class="l"></th>${C.years.map(y=>yHead(y,C.met.length)).join('')}${showChg?`<th class="ys">${chgHead}</th>`:''}</tr>`
        +`<tr><th class="l">Klient</th>${C.years.map(y=>C.met.map((m,i)=>`<th class="${i===0?'ys':''}${yc(y)}">${CMP_MET[m].t}</th>`).join('')).join('')}${showChg?'<th class="ys"></th>':''}</tr>`;
-      tree().forEach(r=>{ b+=`<tr class="${r.type}${sc(r.sel)}">${nameCell(r,1)}${C.years.map(y=>C.met.map((m,i)=>`<td class="${i===0?'ys':''}${yc(y)}${r.pc&&m==='price'?' pe':''}">${cellHTML(cellVal(r.rows,y,m),m)}</td>`).join('')).join('')}`
+      TR.forEach((r,bi)=>{ b+=`<tr class="${r.type} c2b${bi%2}${sc(r.sel)}">${nameCell(r,1)}${C.years.map(y=>C.met.map((m,i)=>`<td class="${i===0?'ys':''}${yc(y)}${vc(y)}${r.pc&&m==='price'?' pe':''}">${cellHTML(cellVal(r.rows,y,m),m)}</td>`).join('')).join('')}`
         +`${showChg?`<td class="ys c2chg">${dHTML(r.rows,C.met)}</td>`:''}</tr>`; });
     } else {
       h=`<tr class="yr"><th class="l"></th><th class="l"></th>${C.years.map(y=>yHead(y,1)).join('')}${showChg?`<th class="ys">${chgHead}</th>`:''}</tr>`
-       +`<tr><th class="l">Klient</th><th class="l">Ukazovateľ</th>${C.years.map(y=>`<th class="ys${yc(y)}"></th>`).join('')}${showChg?'<th class="ys"></th>':''}</tr>`;
-      tree().forEach(r=>{ C.met.forEach((m,i)=>{
-        b+=`<tr class="${r.type} c2m${i===0?' c2first':''}${i===C.met.length-1?' c2last':''}${sc(r.sel)}">${i===0?nameCell(r,C.met.length):''}`
+       +`<tr><th class="l">Klient</th><th class="l"></th>${C.years.map(y=>`<th class="ys${yc(y)}"></th>`).join('')}${showChg?'<th class="ys"></th>':''}</tr>`;
+      TR.forEach((r,bi)=>{ C.met.forEach((m,i)=>{
+        b+=`<tr class="${r.type} c2m c2b${bi%2}${i===0?' c2first':''}${i===C.met.length-1?' c2last':''}${sc(r.sel)}">${i===0?nameCell(r,C.met.length):''}`
           +`<td class="l c2ml"><i style="background:var(${CMP_MET[m].c})"></i>${CMP_MET[m].t}</td>`
-          +C.years.map(y=>`<td class="ys${yc(y)}${r.pc&&m==='price'?' pe':''}">${cellHTML(cellVal(r.rows,y,m),m)}</td>`).join('')
+          +C.years.map(y=>`<td class="ys${yc(y)}${vc(y)}${r.pc&&m==='price'?' pe':''}">${cellHTML(cellVal(r.rows,y,m),m)}</td>`).join('')
           +`${showChg?`<td class="ys c2chg">${dHTML(r.rows,[m])}</td>`:''}</tr>`; }); });
     }
     return `<table class="cmpt2"><thead>${h}</thead><tbody>${b}</tbody></table>`; };
@@ -1828,7 +1873,7 @@ function renderCmp(p,D){
   const rc=B.info.recon.map(r=>({...r, d:r.kk[1]?r.bp[1]/r.kk[1]-1:null, dv:r.kk[0]?r.bp[0]/r.kk[0]-1:null}));
   const bad=rc.filter(r=>r.d!=null&&Math.abs(r.d)>0.03);
   const pct1=v=>v==null?'–':(v>0?'+':'')+nf1.format(v*100)+' %';
-  const reconHTML = rc.length ? `<details class="acc" ${bad.length?'open':''}><summary>Kontrola základu: rok 2026 v BP 2027 proti kokpitu${bad.length?` · ${bad.length} riadkov sa líši o viac ako 3 %`:''}</summary><div>
+  const reconHTML = rc.length ? `<details class="acc"><summary>Kontrola základu: rok 2026 v BP 2027 proti kokpitu${bad.length?` · ${bad.length} riadkov sa líši o viac ako 3 %`:''}</summary><div>
       <p class="note" style="margin:0 0 8px">Export BP 2027 obsahuje aj vlastný rok 2026. Ak sa líši od kokpitu, porovnanie 2027 s 2026 v režime „Čísla BP 2027“ ukáže aj tento rozdiel, nielen plánovanú zmenu.</p>
       <div class="tscroll"><table><thead><tr><th class="l">Riadok BP 2027</th><th>Objem 2026 BP</th><th>Tržba 2026 BP</th><th>Tržba 2026 kokpit</th><th>Rozdiel</th></tr></thead><tbody>
       ${rc.map(r=>`<tr><td class="l">${esc(r.label)}</td><td>${num(r.bp[0])}</td><td>${eur(r.bp[1])}</td><td>${eur(r.kk[1])}</td>
