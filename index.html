@@ -323,7 +323,7 @@ svg.c2sk{display:inline-block;width:92px;height:26px;overflow:visible}
 .c2pre button[aria-pressed="true"]{border-style:solid;border-color:var(--s1);color:var(--s1);font-weight:600}
 .c2bench{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:14px;align-items:start}
 .c2bench>.card{margin:0;min-width:0}
-.c2detail{position:sticky;top:var(--c2ct,0px);max-height:calc(100vh - var(--c2ct,0px) - 10px);overflow:auto;padding:12px 14px}
+.c2detail{position:sticky;top:var(--c2ct,0px);padding:12px 14px}
 .c2dh .who{font-size:16px;font-weight:650}
 .c2tile{display:grid;grid-template-columns:94px 1fr auto;gap:2px 10px;align-items:baseline;padding:8px 0;border-top:1px solid var(--grid)}
 .c2tile .lab{font-size:12px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
@@ -1978,11 +1978,14 @@ function renderCmp(p,D){
   });
   // lepiaci ovládací pás pod hlavičkou kokpitu, panel detailu pod ním
   const c2Sticky=()=>{ const hd=document.querySelector('header'), ct=document.getElementById('c2Ctrl'); if(!ct) return;
-    const h1=hd?hd.offsetHeight:0; p.style.setProperty('--c2hd',h1+'px'); p.style.setProperty('--c2ct',(h1+ct.offsetHeight+12)+'px'); };
+    const h1=hd?hd.offsetHeight:0, top=h1+ct.offsetHeight+12; p.style.setProperty('--c2hd',h1+'px');
+    // panel detailu: keď sa pod pás nezmestí celý, posúva sa so stránkou a prilepí sa až spodkom (grafy ostanú viditeľné)
+    const det=document.getElementById('c2Det'), dh=det?det.offsetHeight:0;
+    p.style.setProperty('--c2ct',Math.min(top, innerHeight-dh-10)+'px'); };
 
   /* --- graf --- */
-  c2Sticky();
   cmpChart(document.getElementById('cmpCh'), selRows, Object.assign({},C,{ck:C.met}), {val, mon, mv, ytd:YTD, has27:B.has27, compact:true});
+  c2Sticky();
 }
 
 function cmpChart(el, rows, C, h){
